@@ -1,0 +1,727 @@
+import { useState, useEffect, useRef, useMemo } from "react";
+import Papa from "papaparse";
+import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check } from "lucide-react";
+
+const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", white: "#FFFFFF" };
+const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
+const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
+const FORMATOS = ["Solo", "Dúo", "Grupo"];
+const CLUE_SECONDS = 10;
+const COUNT_SECONDS = 3;
+const REVEAL_DELAY = 3;
+const GUESS_POINTS = 10;
+const STEAL_POINTS = 5;
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/* ---------- estilos reutilizables (CSS normal, no Tailwind) ---------- */
+const S = {
+  stage: { position: "relative", minHeight: "100vh", width: "100%", overflow: "hidden", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "'Inter', sans-serif", boxSizing: "border-box" },
+  glowA: { position: "absolute", pointerEvents: "none", top: -160, left: "50%", transform: "translateX(-50%)", width: 600, height: 600, borderRadius: "50%", opacity: 0.3, filter: "blur(80px)", background: `radial-gradient(circle, ${C.pink} 0%, transparent 70%)` },
+  glowB: { position: "absolute", pointerEvents: "none", bottom: 0, right: 0, width: 400, height: 400, borderRadius: "50%", opacity: 0.2, filter: "blur(80px)", background: `radial-gradient(circle, ${C.teal} 0%, transparent 70%)` },
+  container: { position: "relative", zIndex: 10, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", minHeight: "100vh", padding: "0 20px 32px", boxSizing: "border-box" },
+  headerRow: { display: "flex", alignItems: "center", gap: 12, padding: "24px 0 16px" },
+  backBtn: { padding: 8, borderRadius: 999, background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)", border: "none", cursor: "pointer", display: "flex" },
+  title: { fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0, letterSpacing: "-0.02em" },
+  card: { background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, border: "1px solid rgba(255,255,255,0.1)", boxSizing: "border-box" },
+  input: { width: "100%", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "10px 12px", color: C.white, border: "1px solid rgba(255,255,255,0.1)", outline: "none", boxSizing: "border-box", fontSize: 14, fontFamily: "inherit", marginBottom: 8 },
+  label: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 },
+};
+
+function btnStyle(variant, disabled) {
+  const base = { width: "100%", padding: "16px", borderRadius: 16, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: disabled ? "default" : "pointer", fontFamily: "inherit", boxSizing: "border-box", opacity: disabled ? 0.35 : 1, transition: "transform 0.1s" };
+  const variants = {
+    primary: { background: C.pink, color: C.white, boxShadow: `0 10px 25px -8px ${C.pink}88` },
+    secondary: { background: "rgba(255,255,255,0.1)", color: C.white, border: "1px solid rgba(255,255,255,0.15)" },
+    gold: { background: C.gold, color: C.bg },
+    teal: { background: C.teal, color: C.bg },
+    ghost: { background: "transparent", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.1)" },
+  };
+  return { ...base, ...variants[variant] };
+}
+
+function Btn({ children, onClick, variant = "primary", disabled, style }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ ...btnStyle(variant, disabled), ...style }}>
+      {children}
+    </button>
+  );
+}
+
+function Ring({ pct, size = 180, stroke = 10, color = C.gold, track = "rgba(255,255,255,0.12)" }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+      <circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+      <circle
+        cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
+        strokeDasharray={c} strokeDashoffset={c * (1 - pct)} strokeLinecap="round"
+        style={{ transition: "stroke-dashoffset 1s linear" }}
+      />
+    </svg>
+  );
+}
+
+function Confetti() {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 40 }).map((_, i) => ({
+        id: i, left: Math.random() * 100, color: [C.pink, C.gold, C.teal, "#ffffff"][i % 4],
+        delay: Math.random() * 0.3, duration: 1.6 + Math.random() * 1.2, rotate: Math.random() * 360,
+      })),
+    []
+  );
+  return (
+    <div style={{ pointerEvents: "none", position: "fixed", inset: 0, overflow: "hidden", zIndex: 50 }}>
+      {pieces.map((p) => (
+        <span key={p.id} style={{ position: "absolute", left: `${p.left}%`, top: -16, width: 8, height: 14, background: p.color, transform: `rotate(${p.rotate}deg)`, animation: `confetti-fall ${p.duration}s ${p.delay}s ease-in forwards`, borderRadius: 2 }} />
+      ))}
+    </div>
+  );
+}
+
+function Stage({ children }) {
+  return (
+    <div style={S.stage}>
+      <div style={S.glowA} />
+      <div style={S.glowB} />
+      <div style={S.container}>{children}</div>
+    </div>
+  );
+}
+
+function Header({ title, onBack }) {
+  return (
+    <div style={S.headerRow}>
+      {onBack && (
+        <button onClick={onBack} style={S.backBtn}>
+          <ChevronLeft size={20} />
+        </button>
+      )}
+      <h1 style={S.title}>{title}</h1>
+    </div>
+  );
+}
+
+export default function Pistazo() {
+  const [screen, setScreen] = useState("home");
+  const [teams, setTeams] = useState([]);
+  const [teamInput, setTeamInput] = useState("");
+  const [library, setLibrary] = useState({});
+  const [moods, setMoods] = useState(DEFAULT_MOODS);
+  const [genres, setGenres] = useState(DEFAULT_GENRES);
+  const [csvLoadError, setCsvLoadError] = useState(false);
+  const [roundGenre, setRoundGenre] = useState("Todos");
+  const [roundFormato, setRoundFormato] = useState("Todos");
+  const [pendingGenero, setPendingGenero] = useState(null);
+  const [pendingTipo, setPendingTipo] = useState(null);
+  const [usedIds, setUsedIds] = useState([]);
+  const [performerId, setPerformerId] = useState(null);
+  const [juryId, setJuryId] = useState(null);
+  const [selectedMood, setSelectedMood] = useState(null);
+  const [currentSong, setCurrentSong] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(CLUE_SECONDS);
+  const [correct, setCorrect] = useState(null);
+  const [scores, setScores] = useState({ afinacion: 3, ritmo: 3, actitud: 3 });
+  const [juryRevealed, setJuryRevealed] = useState(false);
+  const [isSteal, setIsSteal] = useState(false);
+  const [attemptedIds, setAttemptedIds] = useState([]);
+  const [wonById, setWonById] = useState(null);
+  const timerRef = useRef(null);
+  const [loaded, setLoaded] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [albumTeamId, setAlbumTeamId] = useState(null);
+  const wakeLockRef = useRef(null);
+  const tapCountRef = useRef(0);
+  const lastTapRef = useRef(0);
+
+  function handleLogoTap() {
+    const now = Date.now();
+    if (now - lastTapRef.current > 1500) tapCountRef.current = 1;
+    else tapCountRef.current += 1;
+    lastTapRef.current = now;
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      setScreen("library");
+    }
+  }
+
+  function vibrate(pattern) {
+    try { navigator.vibrate && navigator.vibrate(pattern); } catch (e) { /* no soportado */ }
+  }
+  async function requestWakeLock() {
+    try { wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch (e) { /* no soportado */ }
+  }
+  function releaseWakeLock() {
+    try { wakeLockRef.current && wakeLockRef.current.release(); } catch (e) { /* ignore */ }
+    wakeLockRef.current = null;
+  }
+  function goHome() {
+    releaseWakeLock();
+    setScreen("home");
+  }
+
+  function normalizeHeader(f) {
+    return f.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+  function findHeaderNorm(fields, ...candidates) {
+    return fields.find((f) => candidates.some((c) => normalizeHeader(f).includes(c)));
+  }
+
+  // Carga las canciones automáticamente desde /canciones.csv (archivo del proyecto, editado por el administrador)
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}canciones.csv`)
+      .then((r) => {
+        if (!r.ok) throw new Error("no encontrado");
+        return r.text();
+      })
+      .then((text) => {
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            const fields = results.meta.fields || [];
+            const generoKey = findHeaderNorm(fields, "genero");
+            const tipoKey = findHeaderNorm(fields, "tipo", "tema");
+            const tituloKey = findHeaderNorm(fields, "titulo", "cancion");
+            const adiv1Key = findHeaderNorm(fields, "adivinanza 1", "adivinanza1", "pista 1", "pista1");
+            const adiv2Key = findHeaderNorm(fields, "adivinanza 2", "adivinanza2", "pista 2", "pista2");
+            const formatoKey = findHeaderNorm(fields, "formato");
+            const artistaKey = findHeaderNorm(fields, "artista", "interprete");
+            const spotifyKey = findHeaderNorm(fields, "spotify");
+            if (!tituloKey || !tipoKey || !adiv1Key || !adiv2Key) { setCsvLoadError(true); return; }
+            const grouped = {};
+            const moodSet = new Set();
+            const genreSet = new Set();
+            results.data.filter((r) => r[tituloKey]).forEach((r) => {
+              const tipoVal = (r[tipoKey] || "Neutro").trim();
+              const generoVal = generoKey ? (r[generoKey] || "").trim() : "";
+              const formatoRaw = formatoKey ? (r[formatoKey] || "").trim() : "";
+              const formatoVal = FORMATOS.find((f) => f.toLowerCase() === formatoRaw.toLowerCase()) || "Solo";
+              const song = { id: uid(), genero: generoVal, formato: formatoVal, title: r[tituloKey], artist: artistaKey ? r[artistaKey] || "" : "", clue1: r[adiv1Key] || "", clue2: r[adiv2Key] || "", spotify: spotifyKey ? r[spotifyKey] || "" : "" };
+              grouped[tipoVal] = grouped[tipoVal] || [];
+              grouped[tipoVal].push(song);
+              moodSet.add(tipoVal);
+              if (generoVal) genreSet.add(generoVal);
+            });
+            setLibrary(grouped);
+            if (moodSet.size) setMoods(Array.from(moodSet));
+            if (genreSet.size) setGenres(Array.from(genreSet));
+          },
+        });
+      })
+      .catch(() => setCsvLoadError(true));
+  }, []);
+
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem("pistazo-teams");
+      if (t) setTeams(JSON.parse(t));
+    } catch (e) { /* sin datos aún */ }
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem("pistazo-teams", JSON.stringify(teams)); } catch (e) {}
+  }, [teams, loaded]);
+
+  function runCountdown(seconds, onTick, onDone) {
+    clearInterval(timerRef.current);
+    let t = seconds;
+    onTick(t);
+    timerRef.current = setInterval(() => {
+      t -= 1;
+      onTick(t);
+      if (t <= 0) {
+        clearInterval(timerRef.current);
+        onDone();
+      }
+    }, 1000);
+  }
+  useEffect(() => () => clearInterval(timerRef.current), []);
+
+  function addTeam() {
+    if (!teamInput.trim() || teams.length >= 5) return;
+    setTeams([...teams, { id: uid(), name: teamInput.trim(), score: 0, album: [] }]);
+    setTeamInput("");
+  }
+  function removeTeam(id) {
+    setTeams(teams.filter((t) => t.id !== id));
+  }
+
+  const totalSongs = useMemo(() => Object.values(library).reduce((a, arr) => a + arr.length, 0), [library]);
+
+  function startRound() {
+    requestWakeLock();
+    setScreen("lobby");
+    setPerformerId(teams[0]?.id || null);
+    const other = teams.find((t) => t.id !== teams[0]?.id);
+    setJuryId(other?.id || null);
+  }
+
+  function pickMood(mood, generoFilter, formatoFilter) {
+    const pool = (library[mood] || []).filter((s) => {
+      if (usedIds.includes(s.id)) return false;
+      if (generoFilter && generoFilter !== "Todos" && s.genero !== generoFilter) return false;
+      if (formatoFilter && formatoFilter !== "Todos" && s.formato !== formatoFilter) return false;
+      return true;
+    });
+    if (pool.length === 0) {
+      alert("No quedan canciones sin usar con esa combinación. Vuelve al lobby e intenta otra.");
+      return;
+    }
+    const song = pool[Math.floor(Math.random() * pool.length)];
+    setSelectedMood(mood);
+    setRoundGenre(generoFilter || "Todos");
+    setRoundFormato(formatoFilter || "Todos");
+    setCurrentSong(song);
+    setUsedIds((u) => [...u, song.id]);
+    setIsSteal(false);
+    setAttemptedIds([]);
+    setWonById(null);
+    setScreen("clue1");
+    runCountdown(CLUE_SECONDS, setTimeLeft, () => {
+      setScreen("clue2");
+      runCountdown(CLUE_SECONDS, setTimeLeft, () => {
+        setScreen("countdown");
+        runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
+          setScreen("waiting");
+          runCountdown(REVEAL_DELAY, setTimeLeft, () => setScreen("verdict"));
+        });
+      });
+    });
+  }
+
+  // Rota los equipos "no participantes" empezando justo después del equipo que adivina,
+  // así cada ronda le toca elegir a un equipo distinto.
+  function getPickers() {
+    const idx = teams.findIndex((t) => t.id === performerId);
+    const rotated = idx === -1 ? teams : [...teams.slice(idx + 1), ...teams.slice(0, idx + 1)];
+    return rotated.filter((t) => t.id !== performerId);
+  }
+
+  function offerSteal(teamId) {
+    setPerformerId(teamId);
+    setIsSteal(true);
+    setScreen("countdown");
+    runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
+      setScreen("waiting");
+      runCountdown(REVEAL_DELAY, setTimeLeft, () => setScreen("verdict"));
+    });
+  }
+
+  function handleVerdict(isCorrect) {
+    setCorrect(isCorrect);
+    if (isCorrect) {
+      vibrate([80, 40, 80, 40, 160]);
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 2200);
+      const pts = isSteal ? STEAL_POINTS : GUESS_POINTS;
+      setTeams((ts) => ts.map((t) => (t.id === performerId ? { ...t, score: t.score + pts } : t)));
+      setWonById(performerId);
+      setScreen("titleReveal");
+    } else {
+      vibrate(200);
+      setAttemptedIds((ids) => [...ids, performerId]);
+      setScreen("steal");
+    }
+  }
+
+  function submitJudging() {
+    const bonus = scores.afinacion + scores.ritmo + scores.actitud;
+    const rarity = bonus >= 13 ? "brillante" : bonus >= 9 ? "rara" : "normal";
+    const figurita = { id: uid(), title: currentSong.title, artist: currentSong.artist, mood: selectedMood, rarity };
+    if (rarity === "brillante") {
+      vibrate([100, 60, 100, 60, 200]);
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 2200);
+    }
+    setTeams((ts) => ts.map((t) => (t.id === performerId ? { ...t, score: t.score + bonus, album: [...(t.album || []), figurita] } : t)));
+    setJuryRevealed(true);
+  }
+
+  function finishRound() {
+    setJuryRevealed(false);
+    setScores({ afinacion: 3, ritmo: 3, actitud: 3 });
+    setCorrect(null);
+    setCurrentSong(null);
+    setSelectedMood(null);
+    setIsSteal(false);
+    setAttemptedIds([]);
+    setWonById(null);
+    setScreen("scoreboard");
+  }
+
+  const performer = teams.find((t) => t.id === performerId);
+  const jury = teams.find((t) => t.id === juryId);
+  const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Inter:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.35); }
+        @keyframes confetti-fall { to { transform: translateY(115vh) rotate(720deg); opacity: 0.2; } }
+        @keyframes pistazo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
+      {showConfetti && <Confetti />}
+
+      {screen === "home" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 24 }}>
+            <div onClick={handleLogoTap} style={{ width: 80, height: 80, borderRadius: 24, background: C.pink, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 15px 30px -8px ${C.pink}66`, transform: "rotate(3deg)", userSelect: "none" }}>
+              <Mic2 size={38} color="white" />
+            </div>
+            <div>
+              <h1 style={{ fontSize: 48, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0, letterSpacing: "-0.02em" }}>PISTAZO</h1>
+              <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8, fontSize: 14 }}>Adivina la canción. Gana la ronda. Cántala como si fuera tuya.</p>
+            </div>
+            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+              <Btn onClick={() => setScreen("teams")}><Users size={18} /> Jugar</Btn>
+            </div>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "teams" && (
+        <Stage>
+          <Header title="Equipos" onBack={goHome} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+            {teams.map((t) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white }}>
+                <span style={{ fontWeight: 600 }}>{t.name}</span>
+                <button onClick={() => removeTeam(t.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={16} color="rgba(255,255,255,0.4)" /></button>
+              </div>
+            ))}
+          </div>
+          {teams.length < 5 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+              <input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="Nombre del equipo"
+                onKeyDown={(e) => e.key === "Enter" && addTeam()} style={{ ...S.input, flex: 1, marginBottom: 0 }} />
+              <button onClick={addTeam} style={{ background: C.teal, borderRadius: 12, border: "none", padding: "0 16px", cursor: "pointer", display: "flex", alignItems: "center" }}><Plus size={20} color={C.bg} /></button>
+            </div>
+          )}
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 16 }}>Mínimo 2 equipos, máximo 5. Un integrante pasa a adivinar; otro equipo completo hace de jurado secreto.</p>
+          <div style={{ flex: 1 }} />
+          <Btn disabled={teams.length < 2 || totalSongs === 0} onClick={startRound}>
+            <Play size={18} /> Empezar juego
+          </Btn>
+          {totalSongs === 0 && <p style={{ textAlign: "center", color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 12 }}>Agrega canciones en la Biblioteca antes de jugar.</p>}
+        </Stage>
+      )}
+
+      {screen === "library" && (
+        <Stage>
+          <Header title="Canciones cargadas" onBack={goHome} />
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 16 }}>
+            Esta lista se carga automáticamente desde <code>public/canciones.csv</code> en el proyecto. Para agregar o editar canciones, edita ese archivo y súbelo a GitHub — no se hace desde aquí.
+          </p>
+          {totalSongs === 0 ? (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, textAlign: "center" }}>
+              <span style={{ fontSize: 36 }}>🎵</span>
+              <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Todavía no hay canciones cargadas. Agrega <code>canciones.csv</code> al proyecto.</p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 16 }}>
+              {moods.map((m) => (
+                <div key={m}>
+                  <p style={{ color: C.gold, fontWeight: 700, fontSize: 14, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>{m} ({(library[m] || []).length})</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {(library[m] || []).map((s) => (
+                      <div key={s.id} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: "8px 12px" }}>
+                        <p style={{ color: C.white, fontSize: 14, fontWeight: 500, margin: 0 }}>{s.title}</p>
+                        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: 0 }}>{s.artist}{s.genero ? ` · ${s.genero}` : ""}{s.formato ? ` · ${s.formato}` : ""}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Stage>
+      )}
+
+      {screen === "lobby" && (
+        <Stage>
+          <Header title="Nueva ronda" onBack={() => setScreen("teams")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <p style={S.label}>¿Quién adivina?</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {teams.map((t) => (
+                  <button key={t.id} onClick={() => setPerformerId(t.id)} style={{ padding: "8px 16px", borderRadius: 999, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", background: performerId === t.id ? C.pink : "rgba(255,255,255,0.1)", color: performerId === t.id ? C.white : "rgba(255,255,255,0.6)" }}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p style={S.label}>¿Quién es el jurado secreto?</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {teams.filter((t) => t.id !== performerId).map((t) => (
+                  <button key={t.id} onClick={() => setJuryId(t.id)} style={{ padding: "8px 16px", borderRadius: 999, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", background: juryId === t.id ? C.teal : "rgba(255,255,255,0.1)", color: juryId === t.id ? C.bg : "rgba(255,255,255,0.6)" }}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Pasa el celular al participante que va a adivinar. El equipo jurado no debe ver la pantalla durante el karaoke.</p>
+          </div>
+          <div style={{ flex: 1 }} />
+          {usedIds.length > 0 && (
+            <button onClick={() => setUsedIds([])} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginBottom: 12, cursor: "pointer", width: "100%" }}>
+              <RotateCcw size={12} /> Reiniciar canciones ya usadas
+            </button>
+          )}
+          <Btn disabled={!performerId || !juryId} onClick={() => setScreen("pickGenero")}>Continuar</Btn>
+        </Stage>
+      )}
+
+      {screen === "pickGenero" && (
+        <Stage>
+          <Header title="Elige el género" onBack={() => setScreen("lobby")} />
+          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
+            Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong> (el equipo que va a adivinar).
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {genres.filter((g) => Object.values(library).some((arr) => arr.some((s) => !usedIds.includes(s.id) && s.genero === g))).map((g) => (
+              <button key={g} onClick={() => { setPendingGenero(g); setScreen("pickTipo"); }} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+                {g}
+              </button>
+            ))}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "pickTipo" && (
+        <Stage>
+          <Header title="Elige el tema" onBack={() => setScreen("pickGenero")} />
+          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
+            Le toca a <strong style={{ color: C.white }}>{getPickers()[0]?.name || performer?.name}</strong>.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {moods.filter((m) => (library[m] || []).some((s) => !usedIds.includes(s.id) && s.genero === pendingGenero)).map((m) => (
+              <button key={m} onClick={() => { setPendingTipo(m); setScreen("pickFormato"); }} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+                {m}
+              </button>
+            ))}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "pickFormato" && (
+        <Stage>
+          <Header title="Elige el formato" onBack={() => setScreen("pickTipo")} />
+          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
+            Le toca a <strong style={{ color: C.white }}>{getPickers()[1]?.name || getPickers()[0]?.name || performer?.name}</strong>.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {FORMATOS.filter((f) => (library[pendingTipo] || []).some((s) => !usedIds.includes(s.id) && s.genero === pendingGenero && s.formato === f)).map((f) => (
+              <button key={f} onClick={() => pickMood(pendingTipo, pendingGenero, f)} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </Stage>
+      )}
+
+      {(screen === "clue1" || screen === "clue2") && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
+            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{selectedMood} · Pista {screen === "clue1" ? "1" : "2"}</p>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Ring pct={timeLeft / CLUE_SECONDS} />
+              <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 24, padding: "32px 24px", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 340 }}>
+              <p style={{ color: C.white, fontSize: 20, fontWeight: 600, lineHeight: 1.4, margin: 0 }}>
+                {screen === "clue1" ? `"${currentSong.clue1}"` : currentSong.clue2}
+              </p>
+            </div>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{performer?.name} está adivinando</p>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "countdown" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 14 }}>¡Digan el nombre ya!</p>
+            <span style={{ fontSize: 96, fontWeight: 900, color: C.gold }}>{timeLeft}</span>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "waiting" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+            <Sparkles color={C.pink} size={40} style={{ animation: "pistazo-pulse 1.2s ease-in-out infinite" }} />
+            <p style={{ color: "rgba(255,255,255,0.6)", fontWeight: 600 }}>Revelando...</p>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "verdict" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
+            {isSteal && <p style={{ color: C.gold, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Intento de robo</p>}
+            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>¿<strong style={{ color: C.white }}>{performer?.name}</strong> acertó el título?</p>
+            <div style={{ display: "flex", gap: 12, width: "100%" }}>
+              <Btn variant="secondary" onClick={() => handleVerdict(false)}>No acertó</Btn>
+              <Btn variant="teal" onClick={() => handleVerdict(true)}>¡Acertó!</Btn>
+            </div>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "steal" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>No la acertaron. ¿Algún otro equipo quiere robar?</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+              {teams.filter((t) => !attemptedIds.includes(t.id) && t.id !== juryId).map((t) => (
+                <button key={t.id} onClick={() => offerSteal(t.id)} style={{ padding: "14px", borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+                  {t.name} roba (vale {STEAL_POINTS} pts)
+                </button>
+              ))}
+            </div>
+            <Btn variant="ghost" onClick={() => setScreen("titleReveal")}>Nadie más, revelar respuesta</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "titleReveal" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>La canción era</p>
+            <div>
+              <h2 style={{ fontSize: 30, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{currentSong.title}</h2>
+              <p style={{ color: C.teal, fontWeight: 600, marginTop: 4 }}>{currentSong.artist}</p>
+            </div>
+            {wonById ? (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¡{teams.find((t) => t.id === wonById)?.name} ganó esta ronda!</p>
+                <Btn variant="gold" onClick={() => setScreen("karaoke")}><Mic2 size={18} /> Ir al karaoke</Btn>
+              </>
+            ) : (
+              <Btn onClick={finishRound}>Terminar ronda</Btn>
+            )}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "karaoke" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
+            <div style={{ width: 64, height: 64, borderRadius: 16, background: C.teal, display: "flex", alignItems: "center", justifyContent: "center", transform: "rotate(3deg)" }}>
+              <Mic2 size={28} color={C.bg} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¡A cantar!</h2>
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginTop: 4 }}>{currentSong.title} · {currentSong.artist}</p>
+            </div>
+            {currentSong.spotify ? (
+              <a href={currentSong.spotify} target="_blank" rel="noreferrer" style={{ width: "100%", textDecoration: "none" }}>
+                <Btn variant="gold"><ExternalLink size={18} /> Abrir en Spotify (modo letra)</Btn>
+              </a>
+            ) : (
+              <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>No hay link de Spotify guardado para esta canción.</p>
+            )}
+            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>{jury?.name}: tapen la pantalla, van a calificar en secreto.</p>
+            <Btn onClick={() => setScreen("jury")}><Star size={18} /> Calificar el karaoke</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "jury" && (
+        <Stage>
+          <Header title={`Jurado: ${jury?.name || ""}`} />
+          {!juryRevealed ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
+              <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}><EyeOff size={14} /> Solo el equipo jurado debe ver esto.</p>
+              {[
+                { key: "afinacion", label: "Afinación" },
+                { key: "ritmo", label: "Ritmo y sincronía" },
+                { key: "actitud", label: "Show y actitud" },
+              ].map((c) => (
+                <div key={c.key}>
+                  <p style={{ color: C.white, fontWeight: 600, marginBottom: 8 }}>{c.label}</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button key={n} onClick={() => setScores({ ...scores, [c.key]: n })} style={{ flex: 1, padding: "12px 0", borderRadius: 12, fontWeight: 700, border: "none", cursor: "pointer", background: scores[c.key] >= n ? C.gold : "rgba(255,255,255,0.1)", color: scores[c.key] >= n ? C.bg : "rgba(255,255,255,0.4)" }}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div style={{ flex: 1 }} />
+              <Btn variant="gold" onClick={submitJudging}><Eye size={18} /> Revelar puntaje</Btn>
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+              <Trophy size={40} color={C.gold} />
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Puntos de karaoke para {performer?.name}</p>
+              <span style={{ fontSize: 48, fontWeight: 900, color: C.white }}>+{scores.afinacion + scores.ritmo + scores.actitud}</span>
+              <Btn onClick={finishRound}>Ver marcador</Btn>
+            </div>
+          )}
+        </Stage>
+      )}
+
+      {screen === "scoreboard" && (
+        <Stage>
+          <Header title="Marcador" onBack={goHome} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {sortedTeams.map((t, i) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 20 }}>{i + 1}</span>
+                  <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
+                  <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>🎴 {(t.album || []).length}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ color: C.gold, fontWeight: 900, fontSize: 18 }}>{t.score}</span>
+                  <button onClick={() => { setAlbumTeamId(t.id); setScreen("album"); }} style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.1)", borderRadius: 999, padding: "4px 10px", border: "none", cursor: "pointer" }}>Álbum</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: 1 }} />
+          <Btn onClick={startRound}><Shuffle size={18} /> Siguiente ronda</Btn>
+        </Stage>
+      )}
+
+      {screen === "album" && (
+        <Stage>
+          <Header title={`Álbum · ${teams.find((t) => t.id === albumTeamId)?.name || ""}`} onBack={() => setScreen("scoreboard")} />
+          {(teams.find((t) => t.id === albumTeamId)?.album || []).length === 0 ? (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, textAlign: "center" }}>
+              <span style={{ fontSize: 36 }}>🎴</span>
+              <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Todavía no hay figuritas. ¡Acierten una canción para empezar a coleccionar!</p>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingBottom: 24 }}>
+              {(teams.find((t) => t.id === albumTeamId)?.album || []).map((f) => {
+                const border = f.rarity === "brillante" ? C.gold : f.rarity === "rara" ? "rgba(46,230,208,0.6)" : "rgba(255,255,255,0.1)";
+                const background = f.rarity === "brillante" ? `linear-gradient(135deg, ${C.gold}33, rgba(255,255,255,0.08), ${C.pink}22)` : f.rarity === "rara" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)";
+                return (
+                  <div key={f.id} style={{ borderRadius: 16, padding: 12, border: `1px solid ${border}`, background }}>
+                    <p style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "rgba(255,255,255,0.4)", margin: "0 0 4px 0" }}>{f.mood} · {f.rarity}</p>
+                    <p style={{ color: C.white, fontWeight: 700, fontSize: 14, lineHeight: 1.3, margin: 0 }}>{f.title}</p>
+                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, margin: "2px 0 0 0" }}>{f.artist}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Stage>
+      )}
+    </>
+  );
+}
