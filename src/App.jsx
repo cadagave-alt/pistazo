@@ -137,6 +137,7 @@ export default function Pistazo() {
   const wakeLockRef = useRef(null);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
+  const [hasSeenInstructions, setHasSeenInstructions] = useState(true);
 
   function handleLogoTap() {
     const now = Date.now();
@@ -244,6 +245,19 @@ export default function Pistazo() {
   }
   useEffect(() => () => clearInterval(timerRef.current), []);
 
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem("pistazo-seen-instructions");
+      setHasSeenInstructions(!!seen);
+    } catch (e) { /* ignore */ }
+  }, []);
+
+  function dismissInstructions(goToTeams) {
+    try { localStorage.setItem("pistazo-seen-instructions", "1"); } catch (e) {}
+    setHasSeenInstructions(true);
+    setScreen(goToTeams ? "teams" : "home");
+  }
+
   function addTeam() {
     if (!teamInput.trim() || teams.length >= 5) return;
     setTeams([...teams, { id: uid(), name: teamInput.trim(), score: 0, album: [] }]);
@@ -263,7 +277,7 @@ export default function Pistazo() {
     setJuryId(other?.id || null);
   }
 
-  function pickMood(mood, generoFilter, formatoFilter) {
+  function selectSong(mood, generoFilter, formatoFilter) {
     const pool = (library[mood] || []).filter((s) => {
       if (usedIds.includes(s.id)) return false;
       if (generoFilter && generoFilter !== "Todos" && s.genero !== generoFilter) return false;
@@ -283,6 +297,10 @@ export default function Pistazo() {
     setIsSteal(false);
     setAttemptedIds([]);
     setWonById(null);
+    setScreen("getReady");
+  }
+
+  function startClueSequence() {
     setScreen("clue1");
     runCountdown(CLUE_SECONDS, setTimeLeft, () => {
       setScreen("clue2");
@@ -307,6 +325,10 @@ export default function Pistazo() {
   function offerSteal(teamId) {
     setPerformerId(teamId);
     setIsSteal(true);
+    setScreen("stealReady");
+  }
+
+  function startStealSequence() {
     setScreen("countdown");
     runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
       setScreen("waiting");
@@ -382,9 +404,35 @@ export default function Pistazo() {
               <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8, fontSize: 14 }}>Adivina la canción. Gana la ronda. Cántala como si fuera tuya.</p>
             </div>
             <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-              <Btn onClick={() => setScreen("teams")}><Users size={18} /> Jugar</Btn>
+              <Btn onClick={() => setScreen(hasSeenInstructions ? "teams" : "instructions")}><Users size={18} /> Jugar</Btn>
+              <Btn variant="secondary" onClick={() => setScreen("instructions")}>Cómo jugar</Btn>
             </div>
           </div>
+        </Stage>
+      )}
+
+      {screen === "instructions" && (
+        <Stage>
+          <Header title="Cómo jugar" onBack={() => setScreen("home")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            {[
+              { n: "1", t: "Formen equipos", d: "Hasta 5 equipos. Un integrante pasa a adivinar; otro equipo completo es el jurado secreto." },
+              { n: "2", t: "Elijan en cadena", d: "El equipo que adivina elige el género musical, el siguiente equipo elige el tema, y el siguiente el formato." },
+              { n: "3", t: "Dos pistas, 10 segundos cada una", d: "Una frase textual de la canción y una pista indirecta. Luego, a la cuenta de 3, digan el título." },
+              { n: "4", t: "¿No la acertaron?", d: "Otro equipo puede robar el turno por la mitad de los puntos." },
+              { n: "5", t: "Karaoke y calificación", d: "Si aciertan, cantan con la letra en Spotify mientras el jurado califica en secreto: afinación, ritmo y actitud." },
+              { n: "6", t: "Álbum de figuritas", d: "Cada canción ganada se suma al álbum del equipo — las más brillantes son las mejor cantadas." },
+            ].map((s) => (
+              <div key={s.n} style={{ display: "flex", gap: 12 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 999, background: C.pink, color: C.white, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13 }}>{s.n}</div>
+                <div>
+                  <p style={{ color: C.white, fontWeight: 700, margin: 0 }}>{s.t}</p>
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, margin: "2px 0 0 0" }}>{s.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Btn variant="gold" onClick={() => dismissInstructions(true)}>Entendido, ¡a jugar!</Btn>
         </Stage>
       )}
 
@@ -522,10 +570,39 @@ export default function Pistazo() {
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {FORMATOS.filter((f) => (library[pendingTipo] || []).some((s) => !usedIds.includes(s.id) && s.genero === pendingGenero && s.formato === f)).map((f) => (
-              <button key={f} onClick={() => pickMood(pendingTipo, pendingGenero, f)} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+              <button key={f} onClick={() => selectSong(pendingTipo, pendingGenero, f)} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
                 {f}
               </button>
             ))}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "getReady" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <Sparkles color={C.gold} size={36} />
+            <div>
+              <h2 style={{ fontSize: 26, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¡Se vienen las pistas!</h2>
+              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, marginTop: 8 }}>
+                Le toca adivinar a <strong style={{ color: C.white }}>{performer?.name}</strong>. Van a ver 2 pistas, 10 segundos cada una — luego tienen que decir el nombre.
+              </p>
+            </div>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{jury?.name} es el jurado secreto de esta ronda.</p>
+            <Btn variant="gold" onClick={startClueSequence}>Comenzar</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "stealReady" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <Sparkles color={C.teal} size={36} />
+            <h2 style={{ fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¡Oportunidad de robo!</h2>
+            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>
+              Pasa el celular a <strong style={{ color: C.white }}>{performer?.name}</strong>. A la cuenta de 3 deben decir el nombre.
+            </p>
+            <Btn variant="teal" onClick={startStealSequence}>Listo</Btn>
           </div>
         </Stage>
       )}
@@ -606,6 +683,7 @@ export default function Pistazo() {
             {wonById ? (
               <>
                 <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¡{teams.find((t) => t.id === wonById)?.name} ganó esta ronda!</p>
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Pasa el celular a {teams.find((t) => t.id === wonById)?.name} para cantar.</p>
                 <Btn variant="gold" onClick={() => setScreen("karaoke")}><Mic2 size={18} /> Ir al karaoke</Btn>
               </>
             ) : (
@@ -633,7 +711,20 @@ export default function Pistazo() {
               <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>No hay link de Spotify guardado para esta canción.</p>
             )}
             <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>{jury?.name}: tapen la pantalla, van a calificar en secreto.</p>
-            <Btn onClick={() => setScreen("jury")}><Star size={18} /> Calificar el karaoke</Btn>
+            <Btn onClick={() => setScreen("juryHandoff")}><Star size={18} /> Calificar el karaoke</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "juryHandoff" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <EyeOff color={C.teal} size={36} />
+            <h2 style={{ fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>Turno del jurado</h2>
+            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>
+              Pasa el celular al equipo jurado: <strong style={{ color: C.white }}>{jury?.name}</strong>. Que el resto no vea la pantalla.
+            </p>
+            <Btn variant="teal" onClick={() => setScreen("jury")}>Continuar</Btn>
           </div>
         </Stage>
       )}
