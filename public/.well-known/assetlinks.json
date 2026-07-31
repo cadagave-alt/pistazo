@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.pistazo.twa",
+        "sha256_cert_fingerprints": ["8C:EC:9F:65:1B:64:DC:06:06:41:9E:11:30:BA:C3:E1:2F:7A:55:F3:D0:D8:DE:21:A8:C5:4C:C7:1E:15:19:AE"]
+      }
+    }]
