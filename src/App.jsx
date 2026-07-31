@@ -93,6 +93,20 @@ function Stage({ children }) {
   );
 }
 
+function MiniScoreboard({ teams }) {
+  const sorted = [...teams].sort((a, b) => b.score - a.score);
+  return (
+    <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12, marginBottom: 16 }}>
+      {sorted.map((t) => (
+        <div key={t.id} style={{ flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: 600 }}>{t.name}</span>
+          <span style={{ color: C.gold, fontSize: 12, fontWeight: 900 }}>{t.score}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Header({ title, onBack }) {
   return (
     <div style={S.headerRow}>
@@ -275,6 +289,14 @@ export default function Pistazo() {
     setPerformerId(teams[0]?.id || null);
     const other = teams.find((t) => t.id !== teams[0]?.id);
     setJuryId(other?.id || null);
+  }
+
+  function endSession() {
+    releaseWakeLock();
+    setTeams([]);
+    setUsedIds([]);
+    try { localStorage.removeItem("pistazo-teams"); } catch (e) {}
+    setScreen("teams");
   }
 
   function selectSong(mood, generoFilter, formatoFilter) {
@@ -497,6 +519,7 @@ export default function Pistazo() {
       {screen === "lobby" && (
         <Stage>
           <Header title="Nueva ronda" onBack={() => setScreen("teams")} />
+          <MiniScoreboard teams={teams} />
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <p style={S.label}>¿Quién adivina?</p>
@@ -533,6 +556,7 @@ export default function Pistazo() {
       {screen === "pickGenero" && (
         <Stage>
           <Header title="Elige el género" onBack={() => setScreen("lobby")} />
+          <MiniScoreboard teams={teams} />
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
             Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong> (el equipo que va a adivinar).
           </p>
@@ -549,6 +573,7 @@ export default function Pistazo() {
       {screen === "pickTipo" && (
         <Stage>
           <Header title="Elige el tema" onBack={() => setScreen("pickGenero")} />
+          <MiniScoreboard teams={teams} />
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
             Le toca a <strong style={{ color: C.white }}>{getPickers()[0]?.name || performer?.name}</strong>.
           </p>
@@ -565,6 +590,7 @@ export default function Pistazo() {
       {screen === "pickFormato" && (
         <Stage>
           <Header title="Elige el formato" onBack={() => setScreen("pickTipo")} />
+          <MiniScoreboard teams={teams} />
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
             Le toca a <strong style={{ color: C.white }}>{getPickers()[1]?.name || getPickers()[0]?.name || performer?.name}</strong>.
           </p>
@@ -785,6 +811,20 @@ export default function Pistazo() {
           </div>
           <div style={{ flex: 1 }} />
           <Btn onClick={startRound}><Shuffle size={18} /> Siguiente ronda</Btn>
+          <Btn variant="ghost" onClick={() => setScreen("endConfirm")} style={{ marginTop: 8 }}>Cerrar esta partida</Btn>
+        </Stage>
+      )}
+
+      {screen === "endConfirm" && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <h2 style={{ fontSize: 22, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¿Cerrar esta partida?</h2>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Se borran los equipos, puntajes y álbumes de esta partida para armar una nueva desde cero. La biblioteca de canciones no se toca.</p>
+            <div style={{ display: "flex", gap: 12, width: "100%" }}>
+              <Btn variant="secondary" onClick={() => setScreen("scoreboard")}>Cancelar</Btn>
+              <Btn variant="gold" onClick={endSession}>Sí, cerrar</Btn>
+            </div>
+          </div>
         </Stage>
       )}
 
