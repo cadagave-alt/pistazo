@@ -654,15 +654,18 @@ export default function Pistazo() {
               <Ring pct={timeLeft / CLUE3_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
-            <iframe
-              title="pista-audio"
-              src={`https://open.spotify.com/embed/track/${getSpotifyTrackId(currentSong.spotify)}?utm_source=generator`}
-              width="100%"
-              height="152"
-              style={{ borderRadius: 16, maxWidth: 340, border: "none" }}
-              allow="autoplay; encrypted-media"
-            />
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Toca play en el reproductor para escuchar un fragmento.</p>
+            <div style={{ position: "relative", width: "100%", maxWidth: 340 }}>
+              <iframe
+                title="pista-audio"
+                src={`https://open.spotify.com/embed/track/${getSpotifyTrackId(currentSong.spotify)}?utm_source=generator`}
+                width="100%"
+                height="152"
+                style={{ borderRadius: 16, border: "none", display: "block" }}
+                allow="autoplay; encrypted-media"
+              />
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 86, background: C.bg, borderRadius: "16px 16px 0 0", pointerEvents: "none" }} />
+            </div>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Toca play en la barra de abajo para escuchar un fragmento (el nombre y la carátula quedan tapados a propósito).</p>
           </div>
         </Stage>
       )}
