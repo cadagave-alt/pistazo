@@ -8,6 +8,7 @@ const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", wh
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
 const FORMATOS = ["Solo", "Dúo", "Grupo"];
+const AVATARS = ["🎤", "🎧", "🎸", "🥳", "🕺", "💃", "⭐", "🔥", "🎶", "🏆", "🎉", "😎"];
 const CLUE_SECONDS = 10;
 const CLUE3_SECONDS = 7;
 const ANSWER_SECONDS = 15;
@@ -97,6 +98,18 @@ function Stage({ children }) {
   );
 }
 
+function AvatarPicker({ selected, onSelect }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+      {AVATARS.map((a) => (
+        <button key={a} onClick={() => onSelect(a)} style={{ fontSize: 22, padding: "8px 0", borderRadius: 12, border: selected === a ? `2px solid ${C.gold}` : "1px solid rgba(255,255,255,0.1)", background: selected === a ? "rgba(255,201,60,0.15)" : "rgba(255,255,255,0.06)", cursor: "pointer" }}>
+          {a}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MiniScoreboard({ teams }) {
   const sorted = [...teams].sort((a, b) => b.score - a.score);
   return (
@@ -155,6 +168,9 @@ export default function Pistazo() {
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [newTeamNameOnline, setNewTeamNameOnline] = useState("");
   const [onlineError, setOnlineError] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
+  const [soloNameInput, setSoloNameInput] = useState("");
+  const [isRoomHost, setIsRoomHost] = useState(false);
   const roomUnsubRef = useRef(null);
   const timerRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
@@ -303,10 +319,10 @@ export default function Pistazo() {
     } catch (e) { /* ignore */ }
   }, []);
 
-  function dismissInstructions(goToTeams) {
+  function dismissInstructions(goToPlay) {
     try { localStorage.setItem("pistazo-seen-instructions", "1"); } catch (e) {}
     setHasSeenInstructions(true);
-    setScreen(goToTeams ? "teams" : "home");
+    setScreen(goToPlay ? "onlineHome" : "home");
   }
 
   function generateRoomCode() {
@@ -378,10 +394,21 @@ export default function Pistazo() {
   async function addTeamToRoom() {
     if (!roomCode || !newTeamNameOnline.trim()) return;
     const roomRef = doc(db, "rooms", roomCode);
-    const newTeam = { id: uid(), name: newTeamNameOnline.trim(), score: 0 };
+    const newTeam = { id: uid(), name: newTeamNameOnline.trim(), avatar: selectedAvatar, score: 0 };
     await updateDoc(roomRef, { teams: arrayUnion(newTeam) });
     setNewTeamNameOnline("");
     setScreen("onlineLobby");
+  }
+
+  function startSoloPractice() {
+    const name = soloNameInput.trim() || "Tú";
+    const team = { id: uid(), name, avatar: selectedAvatar, score: 0, album: [] };
+    setTeams([team]);
+    setUsedIds([]);
+    setPerformerId(team.id);
+    setJuryId(null);
+    requestWakeLock();
+    setScreen("pickGenero");
   }
 
   function leaveRoom() {
@@ -429,7 +456,7 @@ export default function Pistazo() {
     setTeams([]);
     setUsedIds([]);
     try { localStorage.removeItem("pistazo-teams"); } catch (e) {}
-    setScreen("teams");
+    setScreen("home");
   }
 
   function selectSong(mood, generoFilter) {
@@ -632,6 +659,29 @@ export default function Pistazo() {
     setScreen("scoreboard");
   }
 
+  function startGroupRound() {
+    if (!roomData?.teams || roomData.teams.length < 1) return;
+    setTeams(roomData.teams);
+    setUsedIds([]);
+    setIsRoomHost(true);
+    updateDoc(doc(db, "rooms", roomCode), { "game.phase": "playing", "game.statusText": "Armando la ronda..." }).catch(() => {});
+    setScreen("teams");
+  }
+
+  // Mientras esta partida corre en este celular (el que la inició), reflejar los puntajes en la sala en vivo.
+  useEffect(() => {
+    if (!isRoomHost || !roomCode || teams.length === 0) return;
+    updateDoc(doc(db, "rooms", roomCode), { teams }).catch(() => {});
+  }, [teams, isRoomHost, roomCode]);
+
+  // Si la partida ya empezó y este celular no es el que la inició, lo mandamos a la pantalla de seguimiento en vivo.
+  useEffect(() => {
+    if (!roomCode || isRoomHost) return;
+    if (roomData?.game?.phase === "playing" && screen === "onlineLobby") {
+      setScreen("roomWaiting");
+    }
+  }, [roomData, isRoomHost, roomCode, screen]);
+
   const performer = teams.find((t) => t.id === performerId);
   const jury = teams.find((t) => t.id === juryId);
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
@@ -658,8 +708,7 @@ export default function Pistazo() {
               <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8, fontSize: 14 }}>Adivina la canción. Gana la ronda. Cántala como si fuera tuya.</p>
             </div>
             <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-              <Btn onClick={() => setScreen(hasSeenInstructions ? "teams" : "instructions")}><Users size={18} /> Jugar local</Btn>
-              <Btn variant="teal" onClick={() => setScreen("onlineHome")}><Globe size={18} /> Jugar online</Btn>
+              <Btn onClick={() => setScreen(hasSeenInstructions ? "onlineHome" : "instructions")}><Users size={18} /> Jugar</Btn>
               <Btn variant="secondary" onClick={() => setScreen("instructions")}>Cómo jugar</Btn>
             </div>
           </div>
@@ -668,20 +717,55 @@ export default function Pistazo() {
 
       {screen === "onlineHome" && (
         <Stage>
-          <Header title="Jugar online" onBack={() => setScreen("home")} />
+          <Header title="Jugar" onBack={() => setScreen("home")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
-            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Crea una sala e invita a tus amigos con un código, o busca una partida abierta.</p>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>¿Cómo quieres jugar?</p>
+            <Btn variant="gold" onClick={() => setScreen("groupHome")}><Users size={18} /> Jugar en grupo</Btn>
+            <Btn variant="teal" onClick={() => setScreen("randomHome")}><Shuffle size={18} /> Aleatorio</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "groupHome" && (
+        <Stage>
+          <Header title="Jugar en grupo" onBack={() => setScreen("onlineHome")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Crea una sala e invita a tus amigos con un código, o únete a una que ya exista.</p>
             <Btn variant="gold" onClick={() => createRoom(false)}><UserPlus size={18} /> Crear sala e invitar amigos</Btn>
-            <Btn variant="teal" onClick={joinRandomRoom}><Shuffle size={18} /> Partida aleatoria</Btn>
             <Btn variant="secondary" onClick={() => setScreen("joinCode")}>Unirme con un código</Btn>
             {onlineError && <p style={{ color: C.pink, fontSize: 13 }}>{onlineError}</p>}
           </div>
         </Stage>
       )}
 
+      {screen === "randomHome" && (
+        <Stage>
+          <Header title="Aleatorio" onBack={() => setScreen("onlineHome")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>¿Con quién juegas?</p>
+            <Btn variant="teal" onClick={joinRandomRoom}><Globe size={18} /> Con alguien conectado</Btn>
+            <Btn variant="secondary" onClick={() => setScreen("soloSetup")}>Solo, contra el reloj</Btn>
+            {onlineError && <p style={{ color: C.pink, fontSize: 13 }}>{onlineError}</p>}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "soloSetup" && (
+        <Stage>
+          <Header title="Práctica solo" onBack={() => setScreen("randomHome")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Juegas solo, contra el reloj — sin jurado ni karaoke calificado.</p>
+            <input value={soloNameInput} onChange={(e) => setSoloNameInput(e.target.value)} placeholder="Tu nombre (opcional)" style={S.input} />
+            <p style={S.label}>Elige tu avatar</p>
+            <AvatarPicker selected={selectedAvatar} onSelect={setSelectedAvatar} />
+            <Btn variant="gold" onClick={startSoloPractice}>Empezar</Btn>
+          </div>
+        </Stage>
+      )}
+
       {screen === "joinCode" && (
         <Stage>
-          <Header title="Unirme a una sala" onBack={() => setScreen("onlineHome")} />
+          <Header title="Unirme a una sala" onBack={() => setScreen("groupHome")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
             <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Pide el código de 4 letras a quien creó la sala.</p>
             <input
@@ -709,6 +793,8 @@ export default function Pistazo() {
               placeholder="Nombre del equipo"
               style={S.input}
             />
+            <p style={S.label}>Elige un avatar</p>
+            <AvatarPicker selected={selectedAvatar} onSelect={setSelectedAvatar} />
             <Btn variant="gold" onClick={addTeamToRoom}>Crear equipo y entrar</Btn>
           </div>
         </Stage>
@@ -726,7 +812,9 @@ export default function Pistazo() {
             <p style={S.label}>Equipos en la sala ({(roomData?.teams || []).length})</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(roomData?.teams || []).map((t) => (
-                <div key={t.id} style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white, fontWeight: 600 }}>{t.name}</div>
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white, fontWeight: 600 }}>
+                  <span style={{ fontSize: 20 }}>{t.avatar || "🎤"}</span> {t.name}
+                </div>
               ))}
               {(!roomData?.teams || roomData.teams.length === 0) && (
                 <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Todavía no se ha unido ningún equipo.</p>
@@ -736,9 +824,36 @@ export default function Pistazo() {
               <Btn variant="ghost" onClick={() => setScreen("joinTeamName")}>+ Agregar mi equipo también</Btn>
             )}
           </div>
-          <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, textAlign: "center" }}>
-            La sincronización del juego en vivo (pistas, puntajes por ronda) es el siguiente paso — por ahora, la sala arma los equipos en tiempo real.
+          {(roomData?.teams || []).length >= 1 && (
+            <Btn variant="gold" onClick={startGroupRound}><Play size={18} /> Empezar partida en este celular</Btn>
+          )}
+          <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, textAlign: "center", marginTop: 8 }}>
+            La partida corre en el celular de quien la empieza; los demás ven el marcador en vivo aquí mismo.
           </p>
+        </Stage>
+      )}
+
+      {screen === "roomWaiting" && (
+        <Stage>
+          <Header title="Partida en curso" onBack={leaveRoom} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, textAlign: "center" }}>
+              {roomData?.game?.statusText || "La partida está en curso en otro celular."}
+            </p>
+            <p style={S.label}>Marcador en vivo</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[...(roomData?.teams || [])].sort((a, b) => b.score - a.score).map((t, i) => (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 18 }}>{i + 1}</span>
+                    <span style={{ fontSize: 18 }}>{t.avatar || "🎤"}</span>
+                    <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
+                  </div>
+                  <span style={{ color: C.gold, fontWeight: 900, fontSize: 18 }}>{t.score}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </Stage>
       )}
 
@@ -906,7 +1021,7 @@ export default function Pistazo() {
                 Le toca adivinar a <strong style={{ color: C.white }}>{performer?.name}</strong>. Van a ver 2 pistas de texto y, si hay audio disponible, una pista para escuchar — luego tienen que decir el nombre.
               </p>
             </div>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{jury?.name} es el jurado secreto de esta ronda.</p>
+            {jury && <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{jury.name} es el jurado secreto de esta ronda.</p>}
             <Btn variant="gold" onClick={startClueSequence}>Comenzar</Btn>
           </div>
         </Stage>
@@ -1059,8 +1174,14 @@ export default function Pistazo() {
             ) : (
               <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>No hay link de Spotify guardado para esta canción.</p>
             )}
-            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>{jury?.name}: tapen la pantalla, van a calificar en secreto.</p>
-            <Btn onClick={() => setScreen("juryHandoff")}><Star size={18} /> Calificar el karaoke</Btn>
+            {jury ? (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>{jury.name}: tapen la pantalla, van a calificar en secreto.</p>
+                <Btn onClick={() => setScreen("juryHandoff")}><Star size={18} /> Calificar el karaoke</Btn>
+              </>
+            ) : (
+              <Btn onClick={finishRound}>Terminar ronda</Btn>
+            )}
           </div>
         </Stage>
       )}
