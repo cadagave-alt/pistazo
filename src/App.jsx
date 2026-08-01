@@ -21,22 +21,34 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function genreEmoji(g) {
+  const key = (g || "").toLowerCase();
+  const map = {
+    rock: "🎸", salsa: "🎺", vallenato: "🤠", popular: "🤠", ranchera: "🤠",
+    reggaeton: "🎧", "reggaetón": "🎧", urbano: "🎧", metal: "🤘", pop: "🎤",
+    banda: "🐄", balada: "🎼", merengue: "💃", bachata: "💃", cumbia: "🪗",
+    tejano: "🪗", "reggae": "🌴",
+  };
+  for (const k in map) if (key.includes(k)) return map[k];
+  return "🎵";
+}
+
 /* ---------- estilos reutilizables (CSS normal, no Tailwind) ---------- */
 const S = {
-  stage: { position: "relative", minHeight: "100vh", width: "100%", overflow: "hidden", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "'Inter', sans-serif", boxSizing: "border-box" },
-  glowA: { position: "absolute", pointerEvents: "none", top: -160, left: "50%", transform: "translateX(-50%)", width: 600, height: 600, borderRadius: "50%", opacity: 0.3, filter: "blur(80px)", background: `radial-gradient(circle, ${C.pink} 0%, transparent 70%)` },
-  glowB: { position: "absolute", pointerEvents: "none", bottom: 0, right: 0, width: 400, height: 400, borderRadius: "50%", opacity: 0.2, filter: "blur(80px)", background: `radial-gradient(circle, ${C.teal} 0%, transparent 70%)` },
+  stage: { position: "relative", minHeight: "100vh", width: "100%", overflow: "hidden", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "'Nunito', sans-serif", boxSizing: "border-box" },
+  glowA: { position: "absolute", pointerEvents: "none", top: -160, left: "50%", transform: "translateX(-50%)", width: 600, height: 600, borderRadius: "50%", opacity: 0.35, filter: "blur(80px)", background: `radial-gradient(circle, ${C.pink} 0%, transparent 70%)` },
+  glowB: { position: "absolute", pointerEvents: "none", bottom: 0, right: 0, width: 400, height: 400, borderRadius: "50%", opacity: 0.25, filter: "blur(80px)", background: `radial-gradient(circle, ${C.teal} 0%, transparent 70%)` },
   container: { position: "relative", zIndex: 10, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", minHeight: "100vh", padding: "0 20px 32px", boxSizing: "border-box" },
   headerRow: { display: "flex", alignItems: "center", gap: 12, padding: "24px 0 16px" },
   backBtn: { padding: 8, borderRadius: 999, background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)", border: "none", cursor: "pointer", display: "flex" },
-  title: { fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0, letterSpacing: "-0.02em" },
-  card: { background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: 16, border: "1px solid rgba(255,255,255,0.1)", boxSizing: "border-box" },
-  input: { width: "100%", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "10px 12px", color: C.white, border: "1px solid rgba(255,255,255,0.1)", outline: "none", boxSizing: "border-box", fontSize: 14, fontFamily: "inherit", marginBottom: 8 },
-  label: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 },
+  title: { fontSize: 30, fontWeight: 800, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0, letterSpacing: "0.5px" },
+  card: { background: "rgba(255,255,255,0.07)", borderRadius: 16, padding: 16, border: "1px solid rgba(255,255,255,0.1)", boxSizing: "border-box", backdropFilter: "blur(16px)", boxShadow: "0 10px 30px rgba(0,0,0,0.25)" },
+  input: { width: "100%", background: "rgba(255,255,255,0.1)", borderRadius: 14, padding: "12px 14px", color: C.white, border: "2px solid rgba(255,255,255,0.15)", outline: "none", boxSizing: "border-box", fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 8, boxShadow: "inset 0 2px 6px rgba(0,0,0,0.2)" },
+  label: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 },
 };
 
 function btnStyle(variant, disabled) {
-  const base = { width: "100%", padding: "16px", borderRadius: 16, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: disabled ? "default" : "pointer", fontFamily: "inherit", boxSizing: "border-box", opacity: disabled ? 0.35 : 1, transition: "transform 0.1s" };
+  const base = { width: "100%", padding: "16px", borderRadius: 16, fontWeight: 800, fontSize: 17, letterSpacing: "0.4px", fontFamily: "'Baloo 2', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: disabled ? "default" : "pointer", boxSizing: "border-box", opacity: disabled ? 0.35 : 1, transition: "transform 0.15s ease, box-shadow 0.15s ease" };
   const variants = {
     primary: { background: C.pink, color: C.white, boxShadow: `0 10px 25px -8px ${C.pink}88` },
     secondary: { background: "rgba(255,255,255,0.1)", color: C.white, border: "1px solid rgba(255,255,255,0.15)" },
@@ -49,7 +61,7 @@ function btnStyle(variant, disabled) {
 
 function Btn({ children, onClick, variant = "primary", disabled, style }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ ...btnStyle(variant, disabled), ...style }}>
+    <button className="pz-btn" onClick={onClick} disabled={disabled} style={{ ...btnStyle(variant, disabled), ...style }}>
       {children}
     </button>
   );
@@ -100,24 +112,41 @@ function Stage({ children }) {
 
 function AvatarPicker({ selected, onSelect }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-      {AVATARS.map((a) => (
-        <button key={a} onClick={() => onSelect(a)} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", justifyContent: "center" }}>
-          <img
-            src={a}
-            alt="avatar"
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: "50%",
-              objectFit: "cover",
-              border: selected === a ? `3px solid ${C.gold}` : "3px solid transparent",
-              boxShadow: selected === a ? `0 0 0 2px ${C.bg}` : "none",
-              opacity: selected === a ? 1 : 0.75,
-            }}
-          />
-        </button>
-      ))}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+      {AVATARS.map((a) => {
+        const isSel = selected === a;
+        return (
+          <button key={a} onClick={() => onSelect(a)} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", justifyContent: "center", position: "relative", overflow: "visible" }}>
+            {isSel && (
+              <div style={{ position: "absolute", inset: -10, borderRadius: "50%", background: `radial-gradient(circle, ${C.gold}55 0%, transparent 70%)`, animation: "pz-glow 1.6s ease-in-out infinite" }} />
+            )}
+            {isSel && (
+              <>
+                <span style={{ position: "absolute", top: -6, left: -2, fontSize: 14, animation: "pz-twinkle 1.4s ease-in-out infinite" }}>✨</span>
+                <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 12, animation: "pz-twinkle 1.4s ease-in-out infinite 0.4s" }}>⭐</span>
+              </>
+            )}
+            <img
+              src={a}
+              alt="avatar"
+              style={{
+                position: "relative",
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                objectFit: "cover",
+                display: "block",
+                border: isSel ? `3px solid ${C.gold}` : "3px solid rgba(255,255,255,0.15)",
+                boxSizing: "border-box",
+                transform: isSel ? "scale(1.1)" : "scale(1)",
+                opacity: isSel ? 1 : 0.7,
+                transition: "transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s",
+                animation: isSel ? "pz-bounce 0.4s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+              }}
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -127,9 +156,9 @@ function MiniScoreboard({ teams }) {
   return (
     <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12, marginBottom: 16 }}>
       {sorted.map((t) => (
-        <div key={t.id} style={{ flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: 600 }}>{t.name}</span>
-          <span style={{ color: C.gold, fontSize: 12, fontWeight: 900 }}>{t.score}</span>
+        <div key={t.id} style={{ flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: 700, fontFamily: "'Baloo 2', sans-serif" }}>{t.name}</span>
+          <span style={{ color: C.gold, fontSize: 16, fontFamily: "'Bungee', cursive" }}>{t.score}</span>
         </div>
       ))}
     </div>
@@ -701,25 +730,38 @@ export default function Pistazo() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Lilita+One&family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;600;700;800&family=Bungee&display=swap');
         * { box-sizing: border-box; }
         input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.35); }
+        .pz-btn:active { transform: scale(0.98); }
         @keyframes confetti-fall { to { transform: translateY(115vh) rotate(720deg); opacity: 0.2; } }
         @keyframes pistazo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes pz-glow { 0%,100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+        @keyframes pz-bounce { 0% { transform: scale(0.85); } 60% { transform: scale(1.16); } 100% { transform: scale(1.1); } }
+        @keyframes pz-twinkle { 0%,100% { opacity: 0.3; transform: scale(0.8) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(15deg); } }
+        @keyframes pz-pop { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.25); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes pz-fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pz-zoomin { 0% { transform: scale(0.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes pz-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+        @keyframes pz-shine { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
       `}</style>
       {showConfetti && <Confetti />}
 
       {screen === "home" && (
         <Stage>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 24 }}>
-            <div onClick={handleLogoTap} style={{ width: 80, height: 80, borderRadius: 24, background: C.pink, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 15px 30px -8px ${C.pink}66`, transform: "rotate(3deg)", userSelect: "none" }}>
-              <Mic2 size={38} color="white" />
-            </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 20 }}>
+            <div style={{ fontSize: 20, letterSpacing: 6, color: C.gold }}>⭐ ⭐ ⭐</div>
             <div>
-              <h1 style={{ fontSize: 48, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0, letterSpacing: "-0.02em" }}>PISTAZO</h1>
-              <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8, fontSize: 14 }}>Adivina la canción. Gana la ronda. Cántala como si fuera tuya.</p>
+              <h1 style={{
+                fontSize: 54, color: C.white, fontFamily: "'Lilita One', cursive", margin: 0, letterSpacing: 2,
+                textShadow: "0 4px 0 #7626ff, 0 8px 16px rgba(0,0,0,0.45)",
+              }}>PISTAZO</h1>
+              <p style={{ color: "rgba(255,255,255,0.6)", marginTop: 10, fontSize: 15, fontWeight: 700, letterSpacing: 1 }}>Adivina • Canta • Gana</p>
             </div>
-            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+            <div onClick={handleLogoTap} style={{ userSelect: "none", animation: "pz-float 3s ease-in-out infinite" }}>
+              <img src={AVATARS[7]} alt="" style={{ width: 96, height: 96, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.gold}`, boxShadow: `0 10px 30px -8px ${C.gold}88` }} />
+            </div>
+            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
               <Btn onClick={() => setScreen(hasSeenInstructions ? "onlineHome" : "instructions")}><Users size={18} /> Jugar</Btn>
               <Btn variant="secondary" onClick={() => setScreen("instructions")}>Cómo jugar</Btn>
             </div>
@@ -818,7 +860,7 @@ export default function Pistazo() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
             <div style={{ ...S.card, textAlign: "center" }}>
               <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Código de la sala</p>
-              <p style={{ color: C.gold, fontSize: 40, fontWeight: 900, letterSpacing: 8, margin: 0 }}>{roomCode}</p>
+              <p style={{ color: C.gold, fontSize: 52, fontFamily: "'Bungee', cursive", letterSpacing: 6, margin: 0 }}>{roomCode}</p>
               <Btn variant="secondary" onClick={copyRoomLink} style={{ marginTop: 12 }}><Copy size={16} /> Copiar link para invitar</Btn>
             </div>
             <p style={S.label}>Equipos en la sala ({(roomData?.teams || []).length})</p>
@@ -996,9 +1038,10 @@ export default function Pistazo() {
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
             Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong> (el equipo que va a adivinar).
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {genres.filter((g) => Object.values(library).some((arr) => arr.some((s) => !usedIds.includes(s.id) && s.genero === g))).map((g) => (
-              <button key={g} onClick={() => { setPendingGenero(g); setScreen("pickTipo"); }} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
+              <button key={g} onClick={() => { setPendingGenero(g); setScreen("pickTipo"); }} style={{ padding: "18px 12px", borderRadius: 18, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", fontSize: 15, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, boxShadow: "0 6px 16px rgba(0,0,0,0.2)" }}>
+                <span style={{ fontSize: 26 }}>{genreEmoji(g)}</span>
                 {g}
               </button>
             ))}
@@ -1097,7 +1140,7 @@ export default function Pistazo() {
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
             <p style={{ color: "rgba(255,255,255,0.5)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 14 }}>¡Digan el nombre ya!</p>
-            <span style={{ fontSize: 96, fontWeight: 900, color: C.gold }}>{timeLeft}</span>
+            <span key={timeLeft} style={{ fontSize: 70, fontFamily: "'Bungee', cursive", color: C.gold, animation: "pz-pop 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>{timeLeft}</span>
           </div>
         </Stage>
       )}
@@ -1158,7 +1201,16 @@ export default function Pistazo() {
             </div>
             {wonById ? (
               <>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¡{teams.find((t) => t.id === wonById)?.name} ganó esta ronda!</p>
+                <div style={{
+                  animation: "pz-zoomin 0.5s cubic-bezier(0.34,1.56,0.64,1)",
+                  background: `linear-gradient(135deg, ${C.gold}33, rgba(255,255,255,0.08), ${C.pink}22)`,
+                  border: `2px solid ${C.gold}`, borderRadius: 20, padding: "18px 24px",
+                  boxShadow: `0 0 30px -6px ${C.gold}99`, display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                }}>
+                  <img src={AVATARS[2]} alt="" style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.gold}` }} />
+                  <p style={{ fontSize: 13, letterSpacing: 3, color: C.gold, fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, margin: 0 }}>🥳 ¡GANADORES! 🥳</p>
+                  <p style={{ color: C.white, fontSize: 18, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{teams.find((t) => t.id === wonById)?.name}</p>
+                </div>
                 <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Pasa el celular a {teams.find((t) => t.id === wonById)?.name} para cantar.</p>
                 <Btn variant="gold" onClick={() => setScreen("karaoke")}><Mic2 size={18} /> Ir al karaoke</Btn>
               </>
@@ -1172,9 +1224,7 @@ export default function Pistazo() {
       {screen === "karaoke" && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
-            <div style={{ width: 64, height: 64, borderRadius: 16, background: C.teal, display: "flex", alignItems: "center", justifyContent: "center", transform: "rotate(3deg)" }}>
-              <Mic2 size={28} color={C.bg} />
-            </div>
+            <img src={AVATARS[5]} alt="" style={{ width: 76, height: 76, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.teal}`, animation: "pz-float 2.4s ease-in-out infinite" }} />
             <div>
               <h2 style={{ fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¡A cantar!</h2>
               <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginTop: 4 }}>{currentSong.title} · {currentSong.artist}</p>
@@ -1293,15 +1343,31 @@ export default function Pistazo() {
               <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Todavía no hay figuritas. ¡Acierten una canción para empezar a coleccionar!</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingBottom: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, paddingBottom: 24 }}>
               {(teams.find((t) => t.id === albumTeamId)?.album || []).map((f) => {
-                const border = f.rarity === "brillante" ? C.gold : f.rarity === "rara" ? "rgba(46,230,208,0.6)" : "rgba(255,255,255,0.1)";
-                const background = f.rarity === "brillante" ? `linear-gradient(135deg, ${C.gold}33, rgba(255,255,255,0.08), ${C.pink}22)` : f.rarity === "rara" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)";
+                const rarityColor = f.rarity === "brillante" ? C.gold : f.rarity === "rara" ? C.teal : "rgba(255,255,255,0.3)";
+                const background = f.rarity === "brillante"
+                  ? `linear-gradient(160deg, #2a1a4a, #150C2E 60%)`
+                  : f.rarity === "rara"
+                  ? `linear-gradient(160deg, #163a3a, #150C2E 60%)`
+                  : `linear-gradient(160deg, #241a38, #150C2E 60%)`;
                 return (
-                  <div key={f.id} style={{ borderRadius: 16, padding: 12, border: `1px solid ${border}`, background }}>
-                    <p style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "rgba(255,255,255,0.4)", margin: "0 0 4px 0" }}>{f.mood} · {f.rarity}</p>
-                    <p style={{ color: C.white, fontWeight: 700, fontSize: 14, lineHeight: 1.3, margin: 0 }}>{f.title}</p>
-                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, margin: "2px 0 0 0" }}>{f.artist}</p>
+                  <div key={f.id} style={{
+                    position: "relative", overflow: "hidden", borderRadius: 18, padding: "3px",
+                    background: `linear-gradient(135deg, ${rarityColor}, rgba(255,255,255,0.08) 60%, ${rarityColor}88)`,
+                    boxShadow: f.rarity === "brillante" ? `0 0 20px -4px ${C.gold}aa` : "0 6px 16px rgba(0,0,0,0.3)",
+                  }}>
+                    <div style={{ borderRadius: 15, padding: 12, background, height: "100%", position: "relative", overflow: "hidden" }}>
+                      {f.rarity === "brillante" && (
+                        <div style={{ position: "absolute", inset: 0, background: `linear-gradient(115deg, transparent 40%, ${C.gold}33 50%, transparent 60%)`, backgroundSize: "250% 100%", animation: "pz-shine 2.5s linear infinite" }} />
+                      )}
+                      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <p style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.05em", color: rarityColor, fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, margin: 0 }}>{f.mood}</p>
+                        <span style={{ fontSize: 12 }}>{f.rarity === "brillante" ? "🌟" : f.rarity === "rara" ? "✨" : "🎵"}</span>
+                      </div>
+                      <p style={{ position: "relative", color: C.white, fontWeight: 800, fontSize: 14, lineHeight: 1.3, margin: 0, fontFamily: "'Baloo 2', sans-serif" }}>{f.title}</p>
+                      <p style={{ position: "relative", color: "rgba(255,255,255,0.5)", fontSize: 12, margin: "2px 0 0 0" }}>{f.artist}</p>
+                    </div>
                   </div>
                 );
               })}
