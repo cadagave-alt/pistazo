@@ -257,6 +257,7 @@ export default function Pistazo() {
   const [localGameEnded, setLocalGameEnded] = useState(false);
   const [guessInput, setGuessInput] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [clue3Started, setClue3Started] = useState(false);
   const [roomCode, setRoomCode] = useState(null);
   const [roomData, setRoomData] = useState(null);
   const [joinCodeInput, setJoinCodeInput] = useState("");
@@ -622,7 +623,7 @@ export default function Pistazo() {
     return m ? m[1] : null;
   }
 
-  // Crea el reproductor de Spotify (API oficial) cuando entramos a la pista 3 (modo local o sala), e intenta reproducir de una vez.
+  // Crea el reproductor de Spotify (API oficial) cuando entramos a la pista 3 (modo local o sala), listo para tocar.
   useEffect(() => {
     const inLocalClue3 = screen === "clue3" && currentSong;
     const inRoomClue3 = screen === "roomGame" && roomData?.game?.phase === "clue3" && roomData.game.currentSong;
@@ -636,10 +637,7 @@ export default function Pistazo() {
       { uri: `spotify:track:${trackId}`, width: "100%", height: "152" },
       (EmbedController) => {
         spotifyControllerRef.current = EmbedController;
-        try {
-          EmbedController.seek(0);
-          EmbedController.play();
-        } catch (e) { /* algunos navegadores bloquean el autoplay */ }
+        try { EmbedController.seek(0); } catch (e) { /* ignore */ }
       }
     );
     return () => { spotifyControllerRef.current = null; };
@@ -651,6 +649,13 @@ export default function Pistazo() {
 
   function toggleClue3Audio() {
     try { spotifyControllerRef.current && spotifyControllerRef.current.togglePlay(); } catch (e) { /* ignore */ }
+  }
+
+  function startClue3Playback() {
+    if (clue3Started) return;
+    setClue3Started(true);
+    try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
+    runCountdown(CLUE3_SECONDS, setTimeLeft, goToCountdown);
   }
 
   function goToCountdown() {
@@ -671,8 +676,9 @@ export default function Pistazo() {
         if (getSpotifyTrackId(currentSong?.spotify)) {
           setScreen("clue3intro");
           runCountdown(CLUE3_INTRO_SECONDS, setTimeLeft, () => {
+            setClue3Started(false);
+            setTimeLeft(CLUE3_SECONDS);
             setScreen("clue3");
-            runCountdown(CLUE3_SECONDS, setTimeLeft, goToCountdown);
           });
         } else {
           goToCountdown();
@@ -869,10 +875,11 @@ export default function Pistazo() {
       return () => clearTimeout(t);
     }
     if (g.phase === "clue3intro") {
-      const t = setTimeout(() => roomUpdateGame({ phase: "clue3", clueStartedAt: Date.now() }), CLUE3_INTRO_SECONDS * 1000);
+      const t = setTimeout(() => roomUpdateGame({ phase: "clue3", clueStartedAt: null }), CLUE3_INTRO_SECONDS * 1000);
       return () => clearTimeout(t);
     }
     if (g.phase === "clue3") {
+      if (!g.clueStartedAt) return; // esperando que le den play
       const t = setTimeout(() => {
         stopClue3Audio();
         roomUpdateGame({ phase: "answering", clueStartedAt: Date.now() });
@@ -923,6 +930,11 @@ export default function Pistazo() {
       vibrate(200);
       roomUpdateGame({ phase: "steal", attemptedIds: [...(gm.attemptedIds || []), gm.performerId] });
     }
+  }
+
+  function roomStartClue3Audio() {
+    try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
+    roomUpdateGame({ clueStartedAt: Date.now() });
   }
 
   function roomOfferSteal(teamId) {
@@ -1228,8 +1240,17 @@ export default function Pistazo() {
                     <Ring pct={left / seconds} />
                     <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
                   </div>
-                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca el botón de abajo.</p>
-                  <Btn variant="secondary" onClick={toggleClue3Audio}>Reproducir / pausar</Btn>
+                  {!g.clueStartedAt ? (
+                    <>
+                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>Toca para escuchar el fragmento</p>
+                      <Btn variant="gold" onClick={roomStartClue3Audio}>▶ Reproducir pista</Btn>
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Sonando...</p>
+                      <Btn variant="secondary" onClick={toggleClue3Audio}>Pausar / reanudar</Btn>
+                    </>
+                  )}
                 </div>
                 <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: 140, height: 34, overflow: "hidden", borderRadius: 8, background: C.bg, zIndex: 40 }}>
                   <div ref={clue3ContainerRef} style={{ position: "absolute", top: -108, left: -60, width: 260 }} />
@@ -1735,8 +1756,17 @@ export default function Pistazo() {
               <Ring pct={timeLeft / CLUE3_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca el botón de abajo.</p>
-            <Btn variant="secondary" onClick={toggleClue3Audio}>Reproducir / pausar</Btn>
+            {!clue3Started ? (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>Toca para escuchar el fragmento</p>
+                <Btn variant="gold" onClick={startClue3Playback}>▶ Reproducir pista</Btn>
+              </>
+            ) : (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Sonando...</p>
+                <Btn variant="secondary" onClick={toggleClue3Audio}>Pausar / reanudar</Btn>
+              </>
+            )}
           </div>
           <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: 140, height: 34, overflow: "hidden", borderRadius: 8, background: C.bg, zIndex: 40 }}>
             <div ref={clue3ContainerRef} style={{ position: "absolute", top: -108, left: -60, width: 260 }} />
