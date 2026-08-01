@@ -1203,7 +1203,7 @@ export default function Pistazo() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
             <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>No la acertaron. ¿Algún otro equipo quiere robar?</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-              {teams.filter((t) => !attemptedIds.includes(t.id) && t.id !== juryId).map((t) => (
+              {teams.filter((t) => !attemptedIds.includes(t.id)).map((t) => (
                 <button key={t.id} onClick={() => offerSteal(t.id)} style={{ padding: "14px", borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
                   {t.name} roba (vale {STEAL_POINTS} pts)
                 </button>
