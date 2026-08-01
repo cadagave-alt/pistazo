@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^12.17.0",
     "lucide-react": "^1.27.0",
     "papaparse": "^5.5.4",
     "react": "^19.2.7",

@@ -8,6 +8,7 @@ const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada",
 const FORMATOS = ["Solo", "Dúo", "Grupo"];
 const CLUE_SECONDS = 10;
 const CLUE3_SECONDS = 7;
+const ANSWER_SECONDS = 15;
 const COUNT_SECONDS = 3;
 const REVEAL_DELAY = 3;
 const GUESS_POINTS = 10;
@@ -145,6 +146,8 @@ export default function Pistazo() {
   const [isSteal, setIsSteal] = useState(false);
   const [attemptedIds, setAttemptedIds] = useState([]);
   const [wonById, setWonById] = useState(null);
+  const [guessInput, setGuessInput] = useState("");
+  const [isListening, setIsListening] = useState(false);
   const timerRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -379,9 +382,11 @@ export default function Pistazo() {
 
   function goToCountdown() {
     stopClue3Audio();
+    setGuessInput("");
     setScreen("countdown");
     runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
-      setScreen("waiting");
+      setScreen("answerInput");
+      runCountdown(ANSWER_SECONDS, setTimeLeft, () => checkAnswer());
     });
   }
 
@@ -415,10 +420,70 @@ export default function Pistazo() {
   }
 
   function startStealSequence() {
+    setGuessInput("");
     setScreen("countdown");
     runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
-      setScreen("waiting");
+      setScreen("answerInput");
+      runCountdown(ANSWER_SECONDS, setTimeLeft, () => checkAnswer());
     });
+  }
+
+  function normalizeAnswer(str) {
+    return (str || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/\b(el|la|los|las|un|una|unos|unas|de|del|y|feat)\b/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  function isCloseEnough(guess, title) {
+    const a = normalizeAnswer(guess);
+    const b = normalizeAnswer(title);
+    if (!a) return false;
+    if (a === b) return true;
+    const dist = levenshtein(a, b);
+    const maxLen = Math.max(a.length, b.length);
+    return maxLen > 0 && 1 - dist / maxLen >= 0.75;
+  }
+
+  function checkAnswer() {
+    clearInterval(timerRef.current);
+    const isCorrect = isCloseEnough(guessInput, currentSong?.title || "");
+    handleVerdict(isCorrect);
+  }
+
+  function startListening() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      alert("Este navegador no soporta reconocimiento de voz (pasa seguido en iPhone). Escribe la respuesta.");
+      return;
+    }
+    const recognition = new SR();
+    recognition.lang = "es-ES";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setIsListening(true);
+    recognition.onresult = (e) => {
+      setGuessInput(e.results[0][0].transcript);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
   }
 
   function handleVerdict(isCorrect) {
@@ -701,6 +766,11 @@ export default function Pistazo() {
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
             <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{selectedMood} · Pista 3 · Escucha</p>
+            <div style={{ background: "rgba(255,61,138,0.12)", border: `2px solid ${C.pink}55`, borderRadius: 16, padding: "12px 16px" }}>
+              <p style={{ color: C.gold, fontWeight: 800, fontSize: 15, margin: 0 }}>
+                ⚠️ {performer?.name}: ¡no miren la pantalla! Que alguien más sostenga el celular y solo escuchen.
+              </p>
+            </div>
             <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Ring pct={timeLeft / CLUE3_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
@@ -724,35 +794,32 @@ export default function Pistazo() {
         </Stage>
       )}
 
-      {screen === "waiting" && (
-        <Stage>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-            <EyeOff color={C.teal} size={36} />
-            <h2 style={{ fontSize: 22, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>Turno del jurado</h2>
-            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>
-              Pasa el celular al jurado: <strong style={{ color: C.white }}>{jury?.name}</strong>. Solo ustedes deben ver la siguiente pantalla.
-            </p>
-            <Btn variant="teal" onClick={() => setScreen("verdict")}>Ver la respuesta</Btn>
-          </div>
-        </Stage>
-      )}
-
-      {screen === "verdict" && currentSong && (
+      {screen === "answerInput" && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
             {isSteal && <p style={{ color: C.gold, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Intento de robo</p>}
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>La canción correcta era</p>
-            <div>
-              <h2 style={{ fontSize: 28, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{currentSong.title}</h2>
-              <p style={{ color: C.teal, fontWeight: 600, marginTop: 4 }}>{currentSong.artist}</p>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Ring pct={timeLeft / ANSWER_SECONDS} color={C.teal} />
+              <span style={{ position: "absolute", fontSize: 30, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
             <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 15 }}>
-              Jurado ({jury?.name}): ¿<strong style={{ color: C.white }}>{performer?.name}</strong> dijo el título correcto?
+              <strong style={{ color: C.white }}>{performer?.name}</strong>, escribe el título de la canción
             </p>
+            <input
+              autoFocus
+              value={guessInput}
+              onChange={(e) => setGuessInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && checkAnswer()}
+              placeholder="Título de la canción..."
+              style={{ ...S.input, textAlign: "center", fontSize: 18, marginBottom: 0 }}
+            />
             <div style={{ display: "flex", gap: 12, width: "100%" }}>
-              <Btn variant="secondary" onClick={() => handleVerdict(false)}>No acertó</Btn>
-              <Btn variant="teal" onClick={() => handleVerdict(true)}>¡Acertó!</Btn>
+              <Btn variant="secondary" onClick={startListening} disabled={isListening}>
+                <Mic2 size={18} /> {isListening ? "Escuchando..." : "Hablar"}
+              </Btn>
+              <Btn variant="teal" onClick={checkAnswer}>Comprobar</Btn>
             </div>
+            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>La app compara automáticamente, tolera tildes y pequeños errores de escritura.</p>
           </div>
         </Stage>
       )}
