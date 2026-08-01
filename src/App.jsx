@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
-import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check, Copy, Globe, UserPlus } from "lucide-react";
+import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, ChevronRight, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check, Copy, Globe, UserPlus } from "lucide-react";
 import { db } from "./firebase";
 import { doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp, collection, query, where, getDocs, limit } from "firebase/firestore";
 
@@ -111,42 +111,41 @@ function Stage({ children }) {
 }
 
 function AvatarPicker({ selected, onSelect }) {
+  const idx = Math.max(0, AVATARS.indexOf(selected));
+  function go(delta) {
+    const next = (idx + delta + AVATARS.length) % AVATARS.length;
+    onSelect(AVATARS[next]);
+  }
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-      {AVATARS.map((a) => {
-        const isSel = selected === a;
-        return (
-          <button key={a} onClick={() => onSelect(a)} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", justifyContent: "center", position: "relative", overflow: "visible" }}>
-            {isSel && (
-              <div style={{ position: "absolute", inset: -10, borderRadius: "50%", background: `radial-gradient(circle, ${C.gold}55 0%, transparent 70%)`, animation: "pz-glow 1.6s ease-in-out infinite" }} />
-            )}
-            {isSel && (
-              <>
-                <span style={{ position: "absolute", top: -6, left: -2, fontSize: 14, animation: "pz-twinkle 1.4s ease-in-out infinite" }}>✨</span>
-                <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 12, animation: "pz-twinkle 1.4s ease-in-out infinite 0.4s" }}>⭐</span>
-              </>
-            )}
-            <img
-              src={a}
-              alt="avatar"
-              style={{
-                position: "relative",
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                objectFit: "cover",
-                display: "block",
-                border: isSel ? `3px solid ${C.gold}` : "3px solid rgba(255,255,255,0.15)",
-                boxSizing: "border-box",
-                transform: isSel ? "scale(1.1)" : "scale(1)",
-                opacity: isSel ? 1 : 0.7,
-                transition: "transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s",
-                animation: isSel ? "pz-bounce 0.4s cubic-bezier(0.34,1.56,0.64,1)" : "none",
-              }}
-            />
-          </button>
-        );
-      })}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20 }}>
+        <button onClick={() => go(-1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer", flexShrink: 0 }}>
+          <ChevronLeft size={22} />
+        </button>
+        <div style={{ position: "relative", width: 140, height: 140, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: -14, borderRadius: "50%", background: `radial-gradient(circle, ${C.gold}55 0%, transparent 70%)`, animation: "pz-glow 1.6s ease-in-out infinite" }} />
+          <span style={{ position: "absolute", top: 2, left: 6, fontSize: 20, animation: "pz-twinkle 1.4s ease-in-out infinite" }}>✨</span>
+          <span style={{ position: "absolute", bottom: 4, right: 8, fontSize: 16, animation: "pz-twinkle 1.4s ease-in-out infinite 0.4s" }}>⭐</span>
+          <img
+            key={selected}
+            src={selected}
+            alt="avatar"
+            style={{
+              position: "relative", width: 130, height: 130, borderRadius: "50%", objectFit: "cover",
+              border: `4px solid ${C.gold}`, boxSizing: "border-box",
+              animation: "pz-bounce 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+            }}
+          />
+        </div>
+        <button onClick={() => go(1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer", flexShrink: 0 }}>
+          <ChevronRight size={22} />
+        </button>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {AVATARS.map((a, i) => (
+          <span key={a} style={{ width: 7, height: 7, borderRadius: "50%", background: i === idx ? C.gold : "rgba(255,255,255,0.25)" }} />
+        ))}
+      </div>
     </div>
   );
 }
