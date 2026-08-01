@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, ChevronRight, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check, Copy, Globe, UserPlus } from "lucide-react";
 import { db } from "./firebase";
-import { doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp, collection, query, where, getDocs, limit } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, serverTimestamp, collection, query, where, getDocs, limit } from "firebase/firestore";
 
 const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", white: "#FFFFFF" };
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
@@ -462,11 +462,23 @@ export default function Pistazo() {
     setScreen("pickGenero");
   }
 
-  function leaveRoom() {
+  async function leaveRoom() {
     releaseWakeLock();
+    if (roomCode && myTeamId && roomData) {
+      try {
+        const remaining = (roomData.teams || []).filter((t) => t.id !== myTeamId);
+        if (remaining.length === 0) {
+          await deleteDoc(doc(db, "rooms", roomCode));
+        } else {
+          await updateDoc(doc(db, "rooms", roomCode), { teams: remaining });
+        }
+      } catch (e) { /* si falla, igual salimos localmente */ }
+      try { localStorage.removeItem(`pistazo-myteam-${roomCode}`); } catch (e) {}
+    }
     if (roomUnsubRef.current) { roomUnsubRef.current(); roomUnsubRef.current = null; }
     setRoomData(null);
     setRoomCode(null);
+    setMyTeamId(null);
     setOnlineError("");
     setScreen("home");
   }
@@ -714,10 +726,16 @@ export default function Pistazo() {
   }
 
   // Mantiene la pantalla encendida en TODOS los celulares mientras estén en la partida conectada,
-  // no solo el que está adivinando.
+  // no solo el que está adivinando. Si el navegador lo suelta solo (pasa al cambiar de pestaña o
+  // bloquear un instante), lo volvemos a pedir en cuanto la página vuelve a estar visible.
   useEffect(() => {
     if (screen === "roomGame") {
       requestWakeLock();
+      const onVisible = () => {
+        if (document.visibilityState === "visible" && screen === "roomGame") requestWakeLock();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      return () => document.removeEventListener("visibilitychange", onVisible);
     } else if (!roomCode) {
       releaseWakeLock();
     }
@@ -740,9 +758,19 @@ export default function Pistazo() {
         phase: "pickGenero", performerId: perfId, juryId: jrId, currentSong: null, roundGenre: "Todos",
         usedIds: [], isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
         scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
+        songsPlayed: 0, gameEnded: false,
       },
     }).catch(() => {});
     setScreen("roomGame");
+  }
+
+  function roomGoToScoreboard() {
+    const played = (roomData.game.songsPlayed || 0) + 1;
+    roomUpdateGame({ phase: "scoreboard", songsPlayed: played });
+  }
+
+  function roomEndGame() {
+    roomUpdateGame({ gameEnded: true });
   }
 
   // Cualquier celular en la sala de espera pasa solo a la partida en cuanto alguien la arranca.
@@ -829,9 +857,10 @@ export default function Pistazo() {
     roomUpdateGame({ juryRevealed: true, scores: roomScores });
   }
 
-  function roomNextRound() {
+  function roomNextRound(resetBlock) {
     const t = roomData.teams;
-    const idx = t.findIndex((x) => x.id === roomData.game.wonById) ?? 0;
+    const refId = roomData.game.wonById || roomData.game.performerId;
+    const idx = t.findIndex((x) => x.id === refId);
     const nextPerformer = t[(idx + 1) % t.length] || t[0];
     const nextJury = t.find((x) => x.id !== nextPerformer.id) || null;
     setRoomScores({ afinacion: 3, ritmo: 3, actitud: 3 });
@@ -841,6 +870,7 @@ export default function Pistazo() {
         currentSong: null, roundGenre: "Todos", usedIds: roomData.game.usedIds || [],
         isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
         scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
+        songsPlayed: resetBlock ? 0 : (roomData.game.songsPlayed || 0), gameEnded: false,
       },
     }).catch(() => {});
   }
@@ -1001,10 +1031,11 @@ export default function Pistazo() {
             )}
           </div>
           {(roomData?.teams || []).length >= 1 && (
-            <Btn variant="gold" onClick={startGroupRound}><Play size={18} /> Empezar partida en este celular</Btn>
+            <Btn variant="gold" onClick={startGroupRound}><Play size={18} /> Empezar partida</Btn>
           )}
+          <Btn variant="ghost" onClick={leaveRoom} style={{ marginTop: 8 }}>Salir de la sala</Btn>
           <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, textAlign: "center", marginTop: 8 }}>
-            La partida corre en el celular de quien la empieza; los demás ven el marcador en vivo aquí mismo.
+            Cada quien juega desde su propio celular en tiempo real.
           </p>
         </Stage>
       )}
@@ -1063,43 +1094,33 @@ export default function Pistazo() {
           const seconds = g.phase === "clue3" ? CLUE3_SECONDS : CLUE_SECONDS;
           const left = roomTimeLeft(seconds, g.clueStartedAt);
 
-          // Pista 3 (audio): nunca se muestra en el celular de quien adivina. La reproduce el jurado
-          // (o cualquier otro celular si no hay jurado), y todos escuchan de ahí en voz alta.
-          if (g.phase === "clue3" && iAmPerformer) {
+          if (g.phase === "clue3" && !iAmPerformer) {
             return (
               <Stage>
-                <Header title="Escucha" onBack={leaveRoom} />
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-                  <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Ring pct={left / seconds} />
-                    <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
-                  </div>
-                  <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>🎧 Escucha con atención — el audio suena en otro celular.</p>
+                <Header title="En curso" onBack={leaveRoom} />
+                <ScoreStrip />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                  {rPerformer?.avatar && <img src={rPerformer.avatar} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.teal}` }} />}
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}><strong style={{ color: C.white }}>{rPerformer?.name}</strong> está escuchando la pista 3...</p>
                 </div>
               </Stage>
             );
           }
-          if (g.phase === "clue3" && !iAmPerformer) {
-            const shouldPlayHere = myTeamId === g.juryId || !g.juryId;
+          if (g.phase === "clue3" && iAmPerformer) {
             return (
               <Stage>
-                <Header title="Pista 3 · Audio" onBack={leaveRoom} />
-                <ScoreStrip />
+                <Header title="Pista 3 · Escucha" onBack={leaveRoom} />
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
                   <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Ring pct={left / seconds} />
                     <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
                   </div>
-                  {shouldPlayHere ? (
-                    <>
-                      <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
-                        <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
-                      </div>
-                      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Sube el volumen para que {rPerformer?.name} alcance a escuchar.</p>
-                    </>
-                  ) : (
-                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>Sonando en el celular de {rJury?.name || "otro equipo"}...</p>
-                  )}
+                  <div style={{ position: "relative", width: 260, height: 52, overflow: "hidden", borderRadius: 10, background: C.bg }}>
+                    <div ref={clue3ContainerRef} style={{ position: "absolute", top: -100, left: 0, width: 260 }} />
+                    <span style={{ position: "absolute", top: -12, left: -8, fontSize: 32, opacity: 0.95 }}>🎵</span>
+                    <span style={{ position: "absolute", top: -12, right: -8, fontSize: 30, opacity: 0.95 }}>🎶</span>
+                  </div>
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca sobre los íconos.</p>
                 </div>
               </Stage>
             );
@@ -1229,7 +1250,7 @@ export default function Pistazo() {
                     <Btn variant="gold" onClick={() => roomUpdateGame({ phase: "karaoke" })}><Mic2 size={18} /> Ir al karaoke</Btn>
                   </>
                 ) : (
-                  <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>
+                  <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>
                 )}
               </div>
             </Stage>
@@ -1255,7 +1276,7 @@ export default function Pistazo() {
                 ) : (
                   <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{rJury ? `${rJury.name} va a calificar.` : "Sin jurado esta ronda."}</p>
                 )}
-                {!rJury && <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>}
+                {!rJury && <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>}
               </div>
             </Stage>
           );
@@ -1280,7 +1301,7 @@ export default function Pistazo() {
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
                   <Trophy size={40} color={C.gold} />
                   <span style={{ fontSize: 48, fontWeight: 900, color: C.white }}>+{(g.scores?.afinacion || 0) + (g.scores?.ritmo || 0) + (g.scores?.actitud || 0)}</span>
-                  <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>
+                  <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>
                 </div>
               </Stage>
             );
@@ -1307,9 +1328,12 @@ export default function Pistazo() {
         }
 
         // --- Marcador ---
+        const songsPlayed = g.songsPlayed || 0;
+        const blockDone = songsPlayed >= 5;
         return (
           <Stage>
-            <Header title="Marcador" onBack={leaveRoom} />
+            <Header title={g.gameEnded ? "Resultado final" : "Marcador"} onBack={leaveRoom} />
+            {!g.gameEnded && <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center", marginBottom: 8 }}>Canción {Math.min(songsPlayed, 5)} de 5</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
               {sorted.map((t, i) => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
@@ -1323,7 +1347,20 @@ export default function Pistazo() {
               ))}
             </div>
             <div style={{ flex: 1 }} />
-            <Btn variant="gold" onClick={roomNextRound}><Shuffle size={18} /> Siguiente ronda</Btn>
+            {g.gameEnded ? (
+              <Btn variant="gold" onClick={leaveRoom}>Cerrar partida</Btn>
+            ) : blockDone ? (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, textAlign: "center", marginBottom: 12 }}>¡Terminaron las 5 canciones! ¿Otra ronda de 5?</p>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <Btn variant="secondary" onClick={roomEndGame}>No, terminar</Btn>
+                  <Btn variant="gold" onClick={() => roomNextRound(true)}>Sí, seguir</Btn>
+                </div>
+              </>
+            ) : (
+              <Btn variant="gold" onClick={() => roomNextRound(false)}><Shuffle size={18} /> Siguiente canción</Btn>
+            )}
+            {!g.gameEnded && <Btn variant="ghost" onClick={leaveRoom} style={{ marginTop: 8 }}>Salir de la sala</Btn>}
           </Stage>
         );
       })()}
