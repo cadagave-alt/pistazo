@@ -156,6 +156,7 @@ function MiniScoreboard({ teams }) {
     <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12, marginBottom: 16 }}>
       {sorted.map((t) => (
         <div key={t.id} style={{ flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+          {t.avatar && <img src={t.avatar} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover" }} />}
           <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: 700, fontFamily: "'Baloo 2', sans-serif" }}>{t.name}</span>
           <span style={{ color: C.gold, fontSize: 16, fontFamily: "'Bungee', cursive" }}>{t.score}</span>
         </div>
@@ -499,18 +500,22 @@ export default function Pistazo() {
     setScreen("home");
   }
 
-  function selectSong(mood, generoFilter) {
-    const pool = (library[mood] || []).filter((s) => {
+  function getAllSongsFlat() {
+    return Object.entries(library).flatMap(([mood, arr]) => arr.map((s) => ({ ...s, mood })));
+  }
+
+  function selectSongByGenero(generoFilter) {
+    const pool = getAllSongsFlat().filter((s) => {
       if (usedIds.includes(s.id)) return false;
       if (generoFilter && generoFilter !== "Todos" && s.genero !== generoFilter) return false;
       return true;
     });
     if (pool.length === 0) {
-      alert("No quedan canciones sin usar con esa combinación. Vuelve al lobby e intenta otra.");
+      alert("No quedan canciones sin usar en ese género. Vuelve al lobby e intenta otro.");
       return;
     }
     const song = pool[Math.floor(Math.random() * pool.length)];
-    setSelectedMood(mood);
+    setSelectedMood(song.mood);
     setRoundGenre(generoFilter || "Todos");
     setCurrentSong(song);
     setUsedIds((u) => [...u, song.id]);
@@ -574,14 +579,6 @@ export default function Pistazo() {
         }
       });
     });
-  }
-
-  // Rota los equipos "no participantes" empezando justo después del equipo que adivina,
-  // así cada ronda le toca elegir a un equipo distinto.
-  function getPickers() {
-    const idx = teams.findIndex((t) => t.id === performerId);
-    const rotated = idx === -1 ? teams : [...teams.slice(idx + 1), ...teams.slice(0, idx + 1)];
-    return rotated.filter((t) => t.id !== performerId);
   }
 
   function offerSteal(teamId) {
@@ -1030,45 +1027,64 @@ export default function Pistazo() {
         </Stage>
       )}
 
-      {screen === "pickGenero" && (
-        <Stage>
-          <Header title="Elige el género" onBack={() => setScreen("lobby")} />
-          <MiniScoreboard teams={teams} />
-          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
-            Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong> (el equipo que va a adivinar).
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {genres.filter((g) => Object.values(library).some((arr) => arr.some((s) => !usedIds.includes(s.id) && s.genero === g))).map((g) => (
-              <button key={g} onClick={() => { setPendingGenero(g); setScreen("pickTipo"); }} style={{ padding: "18px 12px", borderRadius: 18, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", fontSize: 15, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, boxShadow: "0 6px 16px rgba(0,0,0,0.2)" }}>
-                <span style={{ fontSize: 26 }}>{genreEmoji(g)}</span>
-                {g}
-              </button>
-            ))}
-          </div>
-        </Stage>
-      )}
-
-      {screen === "pickTipo" && (
-        <Stage>
-          <Header title="Elige el tema" onBack={() => setScreen("pickGenero")} />
-          <MiniScoreboard teams={teams} />
-          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 16 }}>
-            Le toca a <strong style={{ color: C.white }}>{getPickers()[0]?.name || performer?.name}</strong>.
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {moods.filter((m) => (library[m] || []).some((s) => !usedIds.includes(s.id) && s.genero === pendingGenero)).map((m) => (
-              <button key={m} onClick={() => selectSong(m, pendingGenero)} style={{ padding: 16, borderRadius: 16, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)", color: C.white, fontWeight: 700, cursor: "pointer" }}>
-                {m}
-              </button>
-            ))}
-          </div>
-        </Stage>
-      )}
+      {screen === "pickGenero" && (() => {
+        const availableGenres = genres.filter((g) => getAllSongsFlat().some((s) => !usedIds.includes(s.id) && s.genero === g));
+        if (availableGenres.length === 0) {
+          return (
+            <Stage>
+              <Header title="Elige el género" onBack={() => setScreen("lobby")} />
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>No quedan canciones sin usar. Agrega más en <code>canciones.csv</code> o reinicia las usadas desde el lobby.</p>
+            </Stage>
+          );
+        }
+        const current = availableGenres.includes(pendingGenero) ? pendingGenero : availableGenres[0];
+        const idx = availableGenres.indexOf(current);
+        function goGenre(delta) {
+          const next = (idx + delta + availableGenres.length) % availableGenres.length;
+          setPendingGenero(availableGenres[next]);
+        }
+        return (
+          <Stage>
+            <Header title="Elige el género" onBack={() => setScreen("lobby")} />
+            <MiniScoreboard teams={teams} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 }}>
+              {performer?.avatar && <img src={performer.avatar} alt="" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.gold}` }} />}
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, margin: 0 }}>
+                Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong>
+              </p>
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                <button onClick={() => goGenre(-1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer" }}>
+                  <ChevronLeft size={22} />
+                </button>
+                <div key={current} style={{ width: 160, height: 160, borderRadius: 24, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 10px 26px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, animation: "pz-zoomin 0.3s ease" }}>
+                  <span style={{ fontSize: 56 }}>{genreEmoji(current)}</span>
+                  <span style={{ color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", fontSize: 18 }}>{current}</span>
+                </div>
+                <button onClick={() => goGenre(1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer" }}>
+                  <ChevronRight size={22} />
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {availableGenres.map((g, i) => (
+                  <span key={g} style={{ width: 6, height: 6, borderRadius: "50%", background: i === idx ? C.gold : "rgba(255,255,255,0.25)" }} />
+                ))}
+              </div>
+            </div>
+            <Btn variant="gold" onClick={() => selectSongByGenero(current)}>Elegir {current}</Btn>
+          </Stage>
+        );
+      })()}
 
       {screen === "getReady" && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-            <Sparkles color={C.gold} size={36} />
+            {performer?.avatar ? (
+              <img src={performer.avatar} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.gold}`, animation: "pz-bounce 0.4s cubic-bezier(0.34,1.56,0.64,1)" }} />
+            ) : (
+              <Sparkles color={C.gold} size={36} />
+            )}
             <div>
               <h2 style={{ fontSize: 26, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>¡Se vienen las pistas!</h2>
               <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, marginTop: 8 }}>
@@ -1097,17 +1113,22 @@ export default function Pistazo() {
       {(screen === "clue1" || screen === "clue2") && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
-            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{selectedMood} · Pista {screen === "clue1" ? "1" : "2"}</p>
+            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{roundGenre} · Pista {screen === "clue1" ? "1" : "2"}</p>
             <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Ring pct={timeLeft / CLUE_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
             <div style={{ background: "rgba(255,61,138,0.12)", borderRadius: 24, padding: "36px 24px", border: `2px solid ${C.pink}55`, maxWidth: 340 }}>
               <p style={{ color: C.gold, fontSize: 28, fontWeight: 800, lineHeight: 1.35, margin: 0 }}>
-                {screen === "clue1" ? `"${currentSong.clue1}"` : currentSong.clue2}
+                {screen === "clue1" ? currentSong.artist : currentSong.clue2}
               </p>
             </div>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{performer?.name} está adivinando</p>
+            {performer && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {performer.avatar && <img src={performer.avatar} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />}
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: 0 }}>{performer.name} está adivinando</p>
+              </div>
+            )}
           </div>
         </Stage>
       )}
@@ -1115,7 +1136,7 @@ export default function Pistazo() {
       {screen === "clue3" && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{selectedMood} · Pista 3 · Escucha</p>
+            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{roundGenre} · Pista 3 · Escucha</p>
             <div style={{ background: "rgba(255,61,138,0.12)", border: `2px solid ${C.pink}55`, borderRadius: 16, padding: "12px 16px" }}>
               <p style={{ color: C.gold, fontWeight: 800, fontSize: 15, margin: 0 }}>
                 ⚠️ {performer?.name}: ¡no miren la pantalla! Que alguien más sostenga el celular y solo escuchen.
@@ -1304,6 +1325,7 @@ export default function Pistazo() {
               <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 20 }}>{i + 1}</span>
+                  {t.avatar && <img src={t.avatar} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover" }} />}
                   <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
                   <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>🎴 {(t.album || []).length}</span>
                 </div>
