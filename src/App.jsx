@@ -211,7 +211,11 @@ export default function Pistazo() {
   const [onlineError, setOnlineError] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
   const [soloNameInput, setSoloNameInput] = useState("");
-  const [isRoomHost, setIsRoomHost] = useState(false);
+  const [myTeamId, setMyTeamId] = useState(null);
+  const [guessInputRoom, setGuessInputRoom] = useState("");
+  const [isListeningRoom, setIsListeningRoom] = useState(false);
+  const [roomScores, setRoomScores] = useState({ afinacion: 3, ritmo: 3, actitud: 3 });
+  const [, forceTick] = useState(0);
   const roomUnsubRef = useRef(null);
   const timerRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
@@ -382,6 +386,10 @@ export default function Pistazo() {
         setRoomCode(snap.id);
       }
     });
+    try {
+      const saved = localStorage.getItem(`pistazo-myteam-${code}`);
+      if (saved) setMyTeamId(saved);
+    } catch (e) { /* ignore */ }
   }
 
   async function createRoom(isPublic) {
@@ -437,6 +445,8 @@ export default function Pistazo() {
     const roomRef = doc(db, "rooms", roomCode);
     const newTeam = { id: uid(), name: newTeamNameOnline.trim(), avatar: selectedAvatar, score: 0 };
     await updateDoc(roomRef, { teams: arrayUnion(newTeam) });
+    try { localStorage.setItem(`pistazo-myteam-${roomCode}`, newTeam.id); } catch (e) {}
+    setMyTeamId(newTeam.id);
     setNewTeamNameOnline("");
     setScreen("onlineLobby");
   }
@@ -531,10 +541,13 @@ export default function Pistazo() {
     return m ? m[1] : null;
   }
 
-  // Crea el reproductor de Spotify (API oficial) cuando entramos a la pista 3, e intenta reproducir de una vez.
+  // Crea el reproductor de Spotify (API oficial) cuando entramos a la pista 3 (modo local o sala), e intenta reproducir de una vez.
   useEffect(() => {
-    if (screen !== "clue3" || !currentSong) return;
-    const trackId = getSpotifyTrackId(currentSong.spotify);
+    const inLocalClue3 = screen === "clue3" && currentSong;
+    const inRoomClue3 = screen === "roomGame" && roomData?.game?.phase === "clue3" && roomData.game.currentSong;
+    const activeSong = inLocalClue3 ? currentSong : inRoomClue3 ? roomData.game.currentSong : null;
+    if (!activeSong) return;
+    const trackId = getSpotifyTrackId(activeSong.spotify);
     if (!trackId || !spotifyApiReady || !spotifyApiRef.current || !clue3ContainerRef.current) return;
     clue3ContainerRef.current.innerHTML = "";
     spotifyApiRef.current.createController(
@@ -549,7 +562,7 @@ export default function Pistazo() {
       }
     );
     return () => { spotifyControllerRef.current = null; };
-  }, [screen, currentSong, spotifyApiReady]);
+  }, [screen, currentSong, spotifyApiReady, roomData?.game?.phase, roomData?.game?.currentSong]);
 
   function stopClue3Audio() {
     try { spotifyControllerRef.current && spotifyControllerRef.current.pause(); } catch (e) { /* ignore */ }
@@ -699,28 +712,127 @@ export default function Pistazo() {
     setScreen("scoreboard");
   }
 
-  function startGroupRound() {
-    if (!roomData?.teams || roomData.teams.length < 1) return;
-    setTeams(roomData.teams);
-    setUsedIds([]);
-    setIsRoomHost(true);
-    updateDoc(doc(db, "rooms", roomCode), { "game.phase": "playing", "game.statusText": "Armando la ronda..." }).catch(() => {});
-    setScreen("teams");
+  function roomUpdateGame(patch) {
+    if (!roomCode) return Promise.resolve();
+    const flat = {};
+    Object.entries(patch).forEach(([k, v]) => { flat[`game.${k}`] = v; });
+    return updateDoc(doc(db, "rooms", roomCode), flat).catch(() => {});
   }
 
-  // Mientras esta partida corre en este celular (el que la inició), reflejar los puntajes en la sala en vivo.
-  useEffect(() => {
-    if (!isRoomHost || !roomCode || teams.length === 0) return;
-    updateDoc(doc(db, "rooms", roomCode), { teams }).catch(() => {});
-  }, [teams, isRoomHost, roomCode]);
+  function startGroupRound() {
+    if (!roomData?.teams || roomData.teams.length < 1) return;
+    const t = roomData.teams;
+    const perfId = t[0].id;
+    const jrId = t.length > 1 ? t[1].id : null;
+    updateDoc(doc(db, "rooms", roomCode), {
+      game: {
+        phase: "pickGenero", performerId: perfId, juryId: jrId, currentSong: null, roundGenre: "Todos",
+        usedIds: [], isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
+        scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
+      },
+    }).catch(() => {});
+    setScreen("roomGame");
+  }
 
-  // Si la partida ya empezó y este celular no es el que la inició, lo mandamos a la pantalla de seguimiento en vivo.
+  // Cualquier celular en la sala de espera pasa solo a la partida en cuanto alguien la arranca.
   useEffect(() => {
-    if (!roomCode || isRoomHost) return;
-    if (roomData?.game?.phase === "playing" && screen === "onlineLobby") {
-      setScreen("roomWaiting");
+    if (!roomCode) return;
+    if (roomData?.game?.phase && screen === "onlineLobby") {
+      setScreen("roomGame");
     }
-  }, [roomData, isRoomHost, roomCode, screen]);
+  }, [roomData, roomCode, screen]);
+
+  // Solo el celular de quien adivina "conduce" el reloj de las pistas — evita que dos celulares escriban a la vez.
+  useEffect(() => {
+    if (!roomCode || !roomData?.game) return;
+    const g = roomData.game;
+    if (myTeamId !== g.performerId) return;
+    if (g.phase === "clue1") {
+      const t = setTimeout(() => roomUpdateGame({ phase: "clue2", clueStartedAt: Date.now() }), CLUE_SECONDS * 1000);
+      return () => clearTimeout(t);
+    }
+    if (g.phase === "clue2") {
+      const hasAudio = !!getSpotifyTrackId(g.currentSong?.spotify);
+      const t = setTimeout(() => roomUpdateGame(hasAudio ? { phase: "clue3", clueStartedAt: Date.now() } : { phase: "answering", clueStartedAt: Date.now() }), CLUE_SECONDS * 1000);
+      return () => clearTimeout(t);
+    }
+    if (g.phase === "clue3") {
+      const t = setTimeout(() => roomUpdateGame({ phase: "answering", clueStartedAt: Date.now() }), CLUE3_SECONDS * 1000);
+      return () => clearTimeout(t);
+    }
+  }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
+
+  // Ticker liviano solo para refrescar los anillos de tiempo en pantalla (no escribe nada).
+  useEffect(() => {
+    if (screen !== "roomGame") return;
+    const t = setInterval(() => forceTick((n) => n + 1), 250);
+    return () => clearInterval(t);
+  }, [screen]);
+
+  function roomTimeLeft(seconds, startedAt) {
+    if (!startedAt) return seconds;
+    return Math.max(0, seconds - (Date.now() - startedAt) / 1000);
+  }
+
+  function roomSelectGenero(g) {
+    const gm = roomData.game;
+    const pool = getAllSongsFlat().filter((s) => !(gm.usedIds || []).includes(s.id) && (g === "Todos" || s.genero === g));
+    if (pool.length === 0) { alert("No quedan canciones sin usar en ese género."); return; }
+    const song = pool[Math.floor(Math.random() * pool.length)];
+    roomUpdateGame({
+      phase: "clue1", roundGenre: g, currentSong: song,
+      usedIds: [...(gm.usedIds || []), song.id], clueStartedAt: Date.now(),
+      isSteal: false, wonById: null, attemptedIds: [],
+    });
+  }
+
+  function roomCheckAnswer() {
+    const gm = roomData.game;
+    const isCorrect = isCloseEnough(guessInputRoom, gm.currentSong?.title || "");
+    setGuessInputRoom("");
+    if (isCorrect) {
+      vibrate([80, 40, 80, 40, 160]);
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 2200);
+      const pts = gm.isSteal ? STEAL_POINTS : GUESS_POINTS;
+      const newTeams = roomData.teams.map((t) => (t.id === gm.performerId ? { ...t, score: t.score + pts } : t));
+      updateDoc(doc(db, "rooms", roomCode), { teams: newTeams }).catch(() => {});
+      roomUpdateGame({ phase: "reveal", wonById: gm.performerId });
+    } else {
+      vibrate(200);
+      roomUpdateGame({ phase: "steal", attemptedIds: [...(gm.attemptedIds || []), gm.performerId] });
+    }
+  }
+
+  function roomOfferSteal(teamId) {
+    roomUpdateGame({ performerId: teamId, isSteal: true, phase: "answering", clueStartedAt: Date.now() });
+  }
+
+  function roomSubmitJury() {
+    const gm = roomData.game;
+    const bonus = roomScores.afinacion + roomScores.ritmo + roomScores.actitud;
+    const rarity = bonus >= 13 ? "brillante" : bonus >= 9 ? "rara" : "normal";
+    const figurita = { id: uid(), title: gm.currentSong.title, artist: gm.currentSong.artist, mood: gm.roundGenre, rarity };
+    const newTeams = roomData.teams.map((t) => (t.id === gm.performerId ? { ...t, score: t.score + bonus, album: [...(t.album || []), figurita] } : t));
+    updateDoc(doc(db, "rooms", roomCode), { teams: newTeams }).catch(() => {});
+    roomUpdateGame({ juryRevealed: true, scores: roomScores });
+  }
+
+  function roomNextRound() {
+    const t = roomData.teams;
+    const idx = t.findIndex((x) => x.id === roomData.game.wonById) ?? 0;
+    const nextPerformer = t[(idx + 1) % t.length] || t[0];
+    const nextJury = t.find((x) => x.id !== nextPerformer.id) || null;
+    setRoomScores({ afinacion: 3, ritmo: 3, actitud: 3 });
+    updateDoc(doc(db, "rooms", roomCode), {
+      game: {
+        phase: "pickGenero", performerId: nextPerformer.id, juryId: nextJury?.id || null,
+        currentSong: null, roundGenre: "Todos", usedIds: roomData.game.usedIds || [],
+        isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
+        scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
+      },
+    }).catch(() => {});
+  }
 
   const performer = teams.find((t) => t.id === performerId);
   const jury = teams.find((t) => t.id === juryId);
@@ -886,29 +998,290 @@ export default function Pistazo() {
         </Stage>
       )}
 
-      {screen === "roomWaiting" && (
-        <Stage>
-          <Header title="Partida en curso" onBack={leaveRoom} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
-            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, textAlign: "center" }}>
-              {roomData?.game?.statusText || "La partida está en curso en otro celular."}
-            </p>
-            <p style={S.label}>Marcador en vivo</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[...(roomData?.teams || [])].sort((a, b) => b.score - a.score).map((t, i) => (
+      {screen === "roomGame" && roomData?.game && (() => {
+        const g = roomData.game;
+        const rTeams = roomData.teams || [];
+        const rPerformer = rTeams.find((t) => t.id === g.performerId);
+        const rJury = rTeams.find((t) => t.id === g.juryId);
+        const iAmPerformer = myTeamId === g.performerId;
+        const iAmJury = myTeamId === g.juryId && !iAmPerformer;
+        const sorted = [...rTeams].sort((a, b) => b.score - a.score);
+
+        const ScoreStrip = () => (
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12, marginBottom: 8 }}>
+            {sorted.map((t) => (
+              <div key={t.id} style={{ flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+                {t.avatar && <img src={t.avatar} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover" }} />}
+                <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: 700, fontFamily: "'Baloo 2', sans-serif" }}>{t.name}</span>
+                <span style={{ color: C.gold, fontSize: 15, fontFamily: "'Bungee', cursive" }}>{t.score}</span>
+              </div>
+            ))}
+          </div>
+        );
+
+        // --- Elegir género (solo el que adivina puede tocar) ---
+        if (g.phase === "pickGenero") {
+          const availableGenres = genres.filter((gg) => getAllSongsFlat().some((s) => !(g.usedIds || []).includes(s.id) && s.genero === gg));
+          return (
+            <Stage>
+              <Header title="Elige el género" onBack={leaveRoom} />
+              <ScoreStrip />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                {rPerformer?.avatar && <img src={rPerformer.avatar} alt="" style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.gold}` }} />}
+                {iAmPerformer ? (
+                  <>
+                    <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>Te toca elegir el género</p>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, width: "100%" }}>
+                      {availableGenres.map((gg) => (
+                        <button key={gg} onClick={() => roomSelectGenero(gg)} style={{ padding: "16px 8px", borderRadius: 16, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", cursor: "pointer" }}>
+                          <div style={{ fontSize: 22 }}>{genreEmoji(gg)}</div>{gg}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>Esperando a que <strong style={{ color: C.white }}>{rPerformer?.name}</strong> elija el género...</p>
+                )}
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Pistas 1, 2 y 3 ---
+        if (g.phase === "clue1" || g.phase === "clue2" || g.phase === "clue3") {
+          const seconds = g.phase === "clue3" ? CLUE3_SECONDS : CLUE_SECONDS;
+          const left = roomTimeLeft(seconds, g.clueStartedAt);
+          if (!iAmPerformer) {
+            return (
+              <Stage>
+                <Header title="En curso" onBack={leaveRoom} />
+                <ScoreStrip />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                  {rPerformer?.avatar && <img src={rPerformer.avatar} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.teal}` }} />}
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}><strong style={{ color: C.white }}>{rPerformer?.name}</strong> está viendo sus pistas...</p>
+                </div>
+              </Stage>
+            );
+          }
+          return (
+            <Stage>
+              <Header title="Tus pistas" onBack={leaveRoom} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>
+                  Pista {g.phase === "clue1" ? "1" : g.phase === "clue2" ? "2" : "3 · Escucha"}
+                </p>
+                <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Ring pct={left / seconds} />
+                  <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
+                </div>
+                {g.phase !== "clue3" ? (
+                  <div style={{ background: "rgba(255,61,138,0.12)", borderRadius: 24, padding: "30px 22px", border: `2px solid ${C.pink}55`, maxWidth: 340 }}>
+                    <p style={{ color: C.gold, fontSize: 26, fontWeight: 800, lineHeight: 1.35, margin: 0 }}>
+                      {g.phase === "clue1" ? g.currentSong?.artist : g.currentSong?.clue2}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
+                      <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
+                    </div>
+                    <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>⚠️ ¡No mires si alguien más va a escuchar contigo!</p>
+                  </>
+                )}
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Responder ---
+        if (g.phase === "answering") {
+          if (!iAmPerformer) {
+            return (
+              <Stage>
+                <Header title="En curso" onBack={leaveRoom} />
+                <ScoreStrip />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}><strong style={{ color: C.white }}>{rPerformer?.name}</strong> está respondiendo...</p>
+                </div>
+              </Stage>
+            );
+          }
+          return (
+            <Stage>
+              <Header title="¡Responde!" onBack={leaveRoom} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                {g.isSteal && <p style={{ color: C.gold, fontSize: 12, textTransform: "uppercase" }}>Intento de robo</p>}
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 15 }}>Escribe el título de la canción</p>
+                <input
+                  autoFocus value={guessInputRoom} onChange={(e) => setGuessInputRoom(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && roomCheckAnswer()}
+                  placeholder="Título de la canción..." style={{ ...S.input, textAlign: "center", fontSize: 18, marginBottom: 0 }}
+                />
+                <div style={{ display: "flex", gap: 12, width: "100%" }}>
+                  <Btn variant="secondary" onClick={() => {
+                    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SR) { alert("Este navegador no soporta reconocimiento de voz."); return; }
+                    const r = new SR(); r.lang = "es-ES"; r.interimResults = false; r.maxAlternatives = 1;
+                    setIsListeningRoom(true);
+                    r.onresult = (e) => { setGuessInputRoom(e.results[0][0].transcript); setIsListeningRoom(false); };
+                    r.onerror = () => setIsListeningRoom(false);
+                    r.onend = () => setIsListeningRoom(false);
+                    r.start();
+                  }} disabled={isListeningRoom}>
+                    <Mic2 size={18} /> {isListeningRoom ? "Escuchando..." : "Hablar"}
+                  </Btn>
+                  <Btn variant="teal" onClick={roomCheckAnswer}>Comprobar</Btn>
+                </div>
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Robo de turno ---
+        if (g.phase === "steal") {
+          const eligible = rTeams.filter((t) => !(g.attemptedIds || []).includes(t.id));
+          const iCanSteal = eligible.some((t) => t.id === myTeamId);
+          return (
+            <Stage>
+              <Header title="¿Alguien roba?" onBack={leaveRoom} />
+              <ScoreStrip />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 15 }}>No la acertaron. {eligible.length > 0 ? "¿Quién quiere robar?" : "Nadie más puede robar."}</p>
+                {iCanSteal && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+                    <Btn variant="gold" onClick={() => roomOfferSteal(myTeamId)}>¡Yo quiero robar! (vale {STEAL_POINTS} pts)</Btn>
+                  </div>
+                )}
+                {!iCanSteal && eligible.length === 0 && (
+                  <Btn variant="ghost" onClick={() => roomUpdateGame({ phase: "reveal", wonById: null })}>Revelar respuesta</Btn>
+                )}
+                {!iCanSteal && eligible.length > 0 && (
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Esperando a que algún equipo decida robar...</p>
+                )}
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Revelar título ---
+        if (g.phase === "reveal") {
+          const winner = rTeams.find((t) => t.id === g.wonById);
+          return (
+            <Stage>
+              <Header title="La respuesta" onBack={leaveRoom} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textTransform: "uppercase" }}>La canción era</p>
+                <div>
+                  <h2 style={{ fontSize: 28, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{g.currentSong?.title}</h2>
+                  <p style={{ color: C.teal, fontWeight: 600, marginTop: 4 }}>{g.currentSong?.artist}</p>
+                </div>
+                {winner ? (
+                  <>
+                    <div style={{ background: `linear-gradient(135deg, ${C.gold}33, rgba(255,255,255,0.08), ${C.pink}22)`, border: `2px solid ${C.gold}`, borderRadius: 20, padding: "16px 22px", boxShadow: `0 0 30px -6px ${C.gold}99` }}>
+                      <p style={{ fontSize: 12, letterSpacing: 3, color: C.gold, fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, margin: 0 }}>🥳 ¡GANADORES! 🥳</p>
+                      <p style={{ color: C.white, fontSize: 18, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{winner.name}</p>
+                    </div>
+                    <Btn variant="gold" onClick={() => roomUpdateGame({ phase: "karaoke" })}><Mic2 size={18} /> Ir al karaoke</Btn>
+                  </>
+                ) : (
+                  <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>
+                )}
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Karaoke ---
+        if (g.phase === "karaoke") {
+          const winner = rTeams.find((t) => t.id === g.wonById);
+          return (
+            <Stage>
+              <Header title="¡A cantar!" onBack={leaveRoom} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                {winner?.avatar && <img src={winner.avatar} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.teal}` }} />}
+                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>{g.currentSong?.title} · {g.currentSong?.artist}</p>
+                {g.currentSong?.spotify && (
+                  <a href={g.currentSong.spotify} target="_blank" rel="noreferrer" style={{ width: "100%", textDecoration: "none" }}>
+                    <Btn variant="gold"><ExternalLink size={18} /> Abrir en Spotify</Btn>
+                  </a>
+                )}
+                {myTeamId === g.juryId ? (
+                  <Btn onClick={() => roomUpdateGame({ phase: "jury" })}><Star size={18} /> Calificar el karaoke</Btn>
+                ) : (
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{rJury ? `${rJury.name} va a calificar.` : "Sin jurado esta ronda."}</p>
+                )}
+                {!rJury && <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>}
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Calificación del jurado ---
+        if (g.phase === "jury") {
+          if (myTeamId !== g.juryId) {
+            return (
+              <Stage>
+                <Header title="Calificando..." onBack={leaveRoom} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>{rJury?.name} está calificando el karaoke...</p>
+                </div>
+              </Stage>
+            );
+          }
+          if (g.juryRevealed) {
+            return (
+              <Stage>
+                <Header title="Puntaje" onBack={leaveRoom} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                  <Trophy size={40} color={C.gold} />
+                  <span style={{ fontSize: 48, fontWeight: 900, color: C.white }}>+{(g.scores?.afinacion || 0) + (g.scores?.ritmo || 0) + (g.scores?.actitud || 0)}</span>
+                  <Btn onClick={() => roomUpdateGame({ phase: "scoreboard" })}>Ver marcador</Btn>
+                </div>
+              </Stage>
+            );
+          }
+          return (
+            <Stage>
+              <Header title="Califica el karaoke" onBack={leaveRoom} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
+                {[{ key: "afinacion", label: "Afinación" }, { key: "ritmo", label: "Ritmo y sincronía" }, { key: "actitud", label: "Show y actitud" }].map((c) => (
+                  <div key={c.key}>
+                    <p style={{ color: C.white, fontWeight: 600, marginBottom: 8 }}>{c.label}</p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button key={n} onClick={() => setRoomScores({ ...roomScores, [c.key]: n })} style={{ flex: 1, padding: "12px 0", borderRadius: 12, fontWeight: 700, border: "none", cursor: "pointer", background: roomScores[c.key] >= n ? C.gold : "rgba(255,255,255,0.1)", color: roomScores[c.key] >= n ? C.bg : "rgba(255,255,255,0.4)" }}>{n}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ flex: 1 }} />
+                <Btn variant="gold" onClick={roomSubmitJury}><Eye size={18} /> Revelar puntaje</Btn>
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Marcador ---
+        return (
+          <Stage>
+            <Header title="Marcador" onBack={leaveRoom} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+              {sorted.map((t, i) => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 18 }}>{i + 1}</span>
-                    <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
+                    {t.avatar && <img src={t.avatar} alt="" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover" }} />}
                     <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
                   </div>
                   <span style={{ color: C.gold, fontWeight: 900, fontSize: 18 }}>{t.score}</span>
                 </div>
               ))}
             </div>
-          </div>
-        </Stage>
-      )}
+            <div style={{ flex: 1 }} />
+            <Btn variant="gold" onClick={roomNextRound}><Shuffle size={18} /> Siguiente ronda</Btn>
+          </Stage>
+        );
+      })()}
 
       {screen === "instructions" && (
         <Stage>
