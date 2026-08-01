@@ -9,8 +9,8 @@ const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
 const FORMATOS = ["Solo", "Dúo", "Grupo"];
 const AVATARS = ["/avatars/avatar1.png", "/avatars/avatar2.png", "/avatars/avatar3.png", "/avatars/avatar4.png", "/avatars/avatar5.png", "/avatars/avatar6.png", "/avatars/avatar7.png", "/avatars/avatar8.png"];
-const CLUE_SECONDS = 10;
-const CLUE3_SECONDS = 7;
+const CLUE_SECONDS = 5;
+const CLUE3_SECONDS = 5;
 const ANSWER_SECONDS = 15;
 const COUNT_SECONDS = 3;
 const REVEAL_DELAY = 3;
@@ -542,7 +542,10 @@ export default function Pistazo() {
       { uri: `spotify:track:${trackId}`, width: "100%", height: "152" },
       (EmbedController) => {
         spotifyControllerRef.current = EmbedController;
-        try { EmbedController.play(); } catch (e) { /* algunos navegadores bloquean el autoplay */ }
+        try {
+          EmbedController.seek(0);
+          EmbedController.play();
+        } catch (e) { /* algunos navegadores bloquean el autoplay */ }
       }
     );
     return () => { spotifyControllerRef.current = null; };
@@ -1113,7 +1116,7 @@ export default function Pistazo() {
       {(screen === "clue1" || screen === "clue2") && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, textAlign: "center" }}>
-            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{roundGenre} · Pista {screen === "clue1" ? "1" : "2"}</p>
+            <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>Pista {screen === "clue1" ? "1" : "2"}</p>
             <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Ring pct={timeLeft / CLUE_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
@@ -1136,7 +1139,7 @@ export default function Pistazo() {
       {screen === "clue3" && currentSong && (
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-            <p style={{ color: C.teal, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 12 }}>{roundGenre} · Pista 3 · Escucha</p>
+            <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>Pista 3 · Escucha</p>
             <div style={{ background: "rgba(255,61,138,0.12)", border: `2px solid ${C.pink}55`, borderRadius: 16, padding: "12px 16px" }}>
               <p style={{ color: C.gold, fontWeight: 800, fontSize: 15, margin: 0 }}>
                 ⚠️ {performer?.name}: ¡no miren la pantalla! Que alguien más sostenga el celular y solo escuchen.
