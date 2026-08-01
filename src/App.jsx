@@ -17,6 +17,15 @@ const REVEAL_DELAY = 3;
 const GUESS_POINTS = 10;
 const STEAL_POINTS = 5;
 
+function stableSongId(title, artist) {
+  const str = `${title}|${artist || ""}`.toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return "s" + Math.abs(hash).toString(36);
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -202,6 +211,8 @@ export default function Pistazo() {
   const [isSteal, setIsSteal] = useState(false);
   const [attemptedIds, setAttemptedIds] = useState([]);
   const [wonById, setWonById] = useState(null);
+  const [songsPlayedLocal, setSongsPlayedLocal] = useState(0);
+  const [localGameEnded, setLocalGameEnded] = useState(false);
   const [guessInput, setGuessInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [roomCode, setRoomCode] = useState(null);
@@ -314,7 +325,8 @@ export default function Pistazo() {
               const generoVal = generoKey ? (r[generoKey] || "").trim() : "";
               const formatoRaw = formatoKey ? (r[formatoKey] || "").trim() : "";
               const formatoVal = FORMATOS.find((f) => f.toLowerCase() === formatoRaw.toLowerCase()) || "Solo";
-              const song = { id: uid(), genero: generoVal, formato: formatoVal, title: r[tituloKey], artist: artistaKey ? r[artistaKey] || "" : "", clue1: r[adiv1Key] || "", clue2: r[adiv2Key] || "", spotify: spotifyKey ? r[spotifyKey] || "" : "" };
+              const artistVal = artistaKey ? r[artistaKey] || "" : "";
+              const song = { id: stableSongId(r[tituloKey], artistVal), genero: generoVal, formato: formatoVal, title: r[tituloKey], artist: artistVal, clue1: r[adiv1Key] || "", clue2: r[adiv2Key] || "", spotify: spotifyKey ? r[spotifyKey] || "" : "" };
               grouped[tipoVal] = grouped[tipoVal] || [];
               grouped[tipoVal].push(song);
               moodSet.add(tipoVal);
@@ -458,6 +470,8 @@ export default function Pistazo() {
     setUsedIds([]);
     setPerformerId(team.id);
     setJuryId(null);
+    setSongsPlayedLocal(0);
+    setLocalGameEnded(false);
     requestWakeLock();
     setScreen("pickGenero");
   }
@@ -507,8 +521,9 @@ export default function Pistazo() {
 
   const totalSongs = useMemo(() => Object.values(library).reduce((a, arr) => a + arr.length, 0), [library]);
 
-  function startRound() {
+  function startRound(isFresh) {
     requestWakeLock();
+    if (isFresh) { setSongsPlayedLocal(0); setLocalGameEnded(false); }
     setScreen("lobby");
     setPerformerId(teams[0]?.id || null);
     const other = teams.find((t) => t.id !== teams[0]?.id);
@@ -519,6 +534,8 @@ export default function Pistazo() {
     releaseWakeLock();
     setTeams([]);
     setUsedIds([]);
+    setSongsPlayedLocal(0);
+    setLocalGameEnded(false);
     try { localStorage.removeItem("pistazo-teams"); } catch (e) {}
     setScreen("home");
   }
@@ -722,6 +739,7 @@ export default function Pistazo() {
     setIsSteal(false);
     setAttemptedIds([]);
     setWonById(null);
+    setSongsPlayedLocal((n) => n + 1);
     setScreen("scoreboard");
   }
 
@@ -758,7 +776,7 @@ export default function Pistazo() {
         phase: "pickGenero", performerId: perfId, juryId: jrId, currentSong: null, roundGenre: "Todos",
         usedIds: [], isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
         scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
-        songsPlayed: 0, gameEnded: false,
+        songsPlayed: 0, gameEnded: false, turnIndex: 0,
       },
     }).catch(() => {});
     setScreen("roomGame");
@@ -847,7 +865,7 @@ export default function Pistazo() {
   }
 
   function roomOfferSteal(teamId) {
-    roomUpdateGame({ performerId: teamId, isSteal: true, phase: "answering", clueStartedAt: Date.now() });
+    roomUpdateGame({ performerId: teamId, isSteal: true, phase: "clue1", clueStartedAt: Date.now() });
   }
 
   function roomSubmitJudgment() {
@@ -877,9 +895,8 @@ export default function Pistazo() {
 
   function roomNextRound(resetBlock) {
     const t = roomData.teams;
-    const refId = roomData.game.wonById || roomData.game.performerId;
-    const idx = t.findIndex((x) => x.id === refId);
-    const nextPerformer = t[(idx + 1) % t.length] || t[0];
+    const nextTurnIndex = (roomData.game.turnIndex || 0) + 1;
+    const nextPerformer = t[nextTurnIndex % t.length] || t[0];
     const nextJury = t.find((x) => x.id !== nextPerformer.id) || null;
     setRoomScores({ afinacion: 3, ritmo: 3, actitud: 3 });
     updateDoc(doc(db, "rooms", roomCode), {
@@ -889,6 +906,7 @@ export default function Pistazo() {
         isSteal: false, attemptedIds: [], wonById: null, juryRevealed: false,
         scores: { afinacion: 3, ritmo: 3, actitud: 3 }, clueStartedAt: null,
         songsPlayed: resetBlock ? 0 : (roomData.game.songsPlayed || 0), gameEnded: false,
+        turnIndex: nextTurnIndex,
       },
     }).catch(() => {});
   }
@@ -1438,7 +1456,7 @@ export default function Pistazo() {
           )}
           <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 16 }}>Mínimo 2 equipos, máximo 5. Un integrante pasa a adivinar; otro equipo completo hace de jurado secreto.</p>
           <div style={{ flex: 1 }} />
-          <Btn disabled={teams.length < 2 || totalSongs === 0} onClick={startRound}>
+          <Btn disabled={teams.length < 2 || totalSongs === 0} onClick={() => startRound(true)}>
             <Play size={18} /> Empezar juego
           </Btn>
           {totalSongs === 0 && <p style={{ textAlign: "center", color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 12 }}>Agrega canciones en la Biblioteca antes de jugar.</p>}
@@ -1803,7 +1821,8 @@ export default function Pistazo() {
 
       {screen === "scoreboard" && (
         <Stage>
-          <Header title="Marcador" onBack={goHome} />
+          <Header title={localGameEnded ? "Resultado final" : "Marcador"} onBack={goHome} />
+          {!localGameEnded && <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center", marginBottom: 8 }}>Canción {Math.min(songsPlayedLocal, 5)} de 5</p>}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
             {sortedTeams.map((t, i) => (
               <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
@@ -1821,8 +1840,20 @@ export default function Pistazo() {
             ))}
           </div>
           <div style={{ flex: 1 }} />
-          <Btn onClick={startRound}><Shuffle size={18} /> Siguiente ronda</Btn>
-          <Btn variant="ghost" onClick={() => setScreen("endConfirm")} style={{ marginTop: 8 }}>Cerrar esta partida</Btn>
+          {localGameEnded ? (
+            <Btn variant="gold" onClick={endSession}>Cerrar partida</Btn>
+          ) : songsPlayedLocal >= 5 ? (
+            <>
+              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, textAlign: "center", marginBottom: 12 }}>¡Terminaron las 5 canciones! ¿Otra ronda de 5?</p>
+              <div style={{ display: "flex", gap: 12 }}>
+                <Btn variant="secondary" onClick={() => setLocalGameEnded(true)}>No, terminar</Btn>
+                <Btn variant="gold" onClick={() => startRound(true)}>Sí, seguir</Btn>
+              </div>
+            </>
+          ) : (
+            <Btn onClick={() => startRound(false)}><Shuffle size={18} /> Siguiente canción</Btn>
+          )}
+          {!localGameEnded && <Btn variant="ghost" onClick={() => setScreen("endConfirm")} style={{ marginTop: 8 }}>Cerrar esta partida</Btn>}
         </Stage>
       )}
 
