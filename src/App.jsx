@@ -7,7 +7,7 @@ const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
 const FORMATOS = ["Solo", "Dúo", "Grupo"];
 const CLUE_SECONDS = 10;
-const CLUE3_SECONDS = 15;
+const CLUE3_SECONDS = 7;
 const COUNT_SECONDS = 3;
 const REVEAL_DELAY = 3;
 const GUESS_POINTS = 10;
@@ -150,6 +150,31 @@ export default function Pistazo() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [albumTeamId, setAlbumTeamId] = useState(null);
   const wakeLockRef = useRef(null);
+  const spotifyApiRef = useRef(null);
+  const spotifyControllerRef = useRef(null);
+  const clue3ContainerRef = useRef(null);
+  const [spotifyApiReady, setSpotifyApiReady] = useState(false);
+
+  // Cargar la API oficial de Spotify (iFrame API) una sola vez
+  useEffect(() => {
+    if (window.SpotifyIframeApi) {
+      spotifyApiRef.current = window.SpotifyIframeApi;
+      setSpotifyApiReady(true);
+      return;
+    }
+    const existing = document.querySelector('script[src="https://open.spotify.com/embed/iframe-api/v1"]');
+    if (!existing) {
+      const script = document.createElement("script");
+      script.src = "https://open.spotify.com/embed/iframe-api/v1";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+    window.onSpotifyIframeApiReady = (IFrameAPI) => {
+      window.SpotifyIframeApi = IFrameAPI;
+      spotifyApiRef.current = IFrameAPI;
+      setSpotifyApiReady(true);
+    };
+  }, []);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
   const [hasSeenInstructions, setHasSeenInstructions] = useState(true);
@@ -327,7 +352,33 @@ export default function Pistazo() {
     return m ? m[1] : null;
   }
 
+  // Crea el reproductor de Spotify (API oficial) cuando entramos a la pista 3, e intenta reproducir de una vez.
+  useEffect(() => {
+    if (screen !== "clue3" || !currentSong) return;
+    const trackId = getSpotifyTrackId(currentSong.spotify);
+    if (!trackId || !spotifyApiReady || !spotifyApiRef.current || !clue3ContainerRef.current) return;
+    clue3ContainerRef.current.innerHTML = "";
+    spotifyApiRef.current.createController(
+      clue3ContainerRef.current,
+      { uri: `spotify:track:${trackId}`, width: "100%", height: "152" },
+      (EmbedController) => {
+        spotifyControllerRef.current = EmbedController;
+        try { EmbedController.play(); } catch (e) { /* algunos navegadores bloquean el autoplay */ }
+      }
+    );
+    return () => { spotifyControllerRef.current = null; };
+  }, [screen, currentSong, spotifyApiReady]);
+
+  function stopClue3Audio() {
+    try { spotifyControllerRef.current && spotifyControllerRef.current.pause(); } catch (e) { /* ignore */ }
+  }
+
+  function toggleClue3Audio() {
+    try { spotifyControllerRef.current && spotifyControllerRef.current.togglePlay(); } catch (e) { /* ignore */ }
+  }
+
   function goToCountdown() {
+    stopClue3Audio();
     setScreen("countdown");
     runCountdown(COUNT_SECONDS, (t) => { setTimeLeft(t); vibrate(60); }, () => {
       setScreen("waiting");
@@ -654,18 +705,11 @@ export default function Pistazo() {
               <Ring pct={timeLeft / CLUE3_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
-            <div style={{ position: "relative", width: "100%", maxWidth: 340 }}>
-              <iframe
-                title="pista-audio"
-                src={`https://open.spotify.com/embed/track/${getSpotifyTrackId(currentSong.spotify)}?utm_source=generator`}
-                width="100%"
-                height="152"
-                style={{ borderRadius: 16, border: "none", display: "block" }}
-                allow="autoplay; encrypted-media"
-              />
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 86, background: C.bg, borderRadius: "16px 16px 0 0", pointerEvents: "none" }} />
+            <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
+              <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
             </div>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Toca play en la barra de abajo para escuchar un fragmento (el nombre y la carátula quedan tapados a propósito).</p>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca el botón de abajo.</p>
+            <Btn variant="secondary" onClick={toggleClue3Audio}>Reproducir / pausar</Btn>
           </div>
         </Stage>
       )}
