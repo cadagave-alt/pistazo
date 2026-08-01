@@ -100,10 +100,22 @@ function Stage({ children }) {
 
 function AvatarPicker({ selected, onSelect }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
       {AVATARS.map((a) => (
-        <button key={a} onClick={() => onSelect(a)} style={{ padding: 6, borderRadius: 14, border: selected === a ? `2px solid ${C.gold}` : "1px solid rgba(255,255,255,0.1)", background: selected === a ? "rgba(255,201,60,0.15)" : "rgba(255,255,255,0.06)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <img src={a} alt="avatar" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover" }} />
+        <button key={a} onClick={() => onSelect(a)} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", justifyContent: "center" }}>
+          <img
+            src={a}
+            alt="avatar"
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              objectFit: "cover",
+              border: selected === a ? `3px solid ${C.gold}` : "3px solid transparent",
+              boxShadow: selected === a ? `0 0 0 2px ${C.bg}` : "none",
+              opacity: selected === a ? 1 : 0.75,
+            }}
+          />
         </button>
       ))}
     </div>
@@ -813,7 +825,7 @@ export default function Pistazo() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(roomData?.teams || []).map((t) => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white, fontWeight: 600 }}>
-                  <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover" }} /> {t.name}
+                  <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} /> {t.name}
                 </div>
               ))}
               {(!roomData?.teams || roomData.teams.length === 0) && (
@@ -846,7 +858,7 @@ export default function Pistazo() {
                 <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 18 }}>{i + 1}</span>
-                    <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 24, height: 24, borderRadius: 6, objectFit: "cover" }} />
+                    <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} />
                     <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
                   </div>
                   <span style={{ color: C.gold, fontWeight: 900, fontSize: 18 }}>{t.score}</span>
