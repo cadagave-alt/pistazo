@@ -8,7 +8,7 @@ const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", wh
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
 const FORMATOS = ["Solo", "Dúo", "Grupo"];
-const AVATARS = ["🎤", "🎧", "🎸", "🥳", "🕺", "💃", "⭐", "🔥", "🎶", "🏆", "🎉", "😎"];
+const AVATARS = ["/avatars/avatar1.png", "/avatars/avatar2.png", "/avatars/avatar3.png", "/avatars/avatar4.png", "/avatars/avatar5.png", "/avatars/avatar6.png", "/avatars/avatar7.png", "/avatars/avatar8.png"];
 const CLUE_SECONDS = 10;
 const CLUE3_SECONDS = 7;
 const ANSWER_SECONDS = 15;
@@ -100,10 +100,10 @@ function Stage({ children }) {
 
 function AvatarPicker({ selected, onSelect }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
       {AVATARS.map((a) => (
-        <button key={a} onClick={() => onSelect(a)} style={{ fontSize: 22, padding: "8px 0", borderRadius: 12, border: selected === a ? `2px solid ${C.gold}` : "1px solid rgba(255,255,255,0.1)", background: selected === a ? "rgba(255,201,60,0.15)" : "rgba(255,255,255,0.06)", cursor: "pointer" }}>
-          {a}
+        <button key={a} onClick={() => onSelect(a)} style={{ padding: 6, borderRadius: 14, border: selected === a ? `2px solid ${C.gold}` : "1px solid rgba(255,255,255,0.1)", background: selected === a ? "rgba(255,201,60,0.15)" : "rgba(255,255,255,0.06)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src={a} alt="avatar" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover" }} />
         </button>
       ))}
     </div>
@@ -813,7 +813,7 @@ export default function Pistazo() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(roomData?.teams || []).map((t) => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white, fontWeight: 600 }}>
-                  <span style={{ fontSize: 20 }}>{t.avatar || "🎤"}</span> {t.name}
+                  <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover" }} /> {t.name}
                 </div>
               ))}
               {(!roomData?.teams || roomData.teams.length === 0) && (
@@ -846,7 +846,7 @@ export default function Pistazo() {
                 <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 900, width: 18 }}>{i + 1}</span>
-                    <span style={{ fontSize: 18 }}>{t.avatar || "🎤"}</span>
+                    <img src={t.avatar || AVATARS[0]} alt="" style={{ width: 24, height: 24, borderRadius: 6, objectFit: "cover" }} />
                     <span style={{ color: C.white, fontWeight: 600 }}>{t.name}</span>
                   </div>
                   <span style={{ color: C.gold, fontWeight: 900, fontSize: 18 }}>{t.score}</span>
