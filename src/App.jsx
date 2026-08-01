@@ -796,7 +796,10 @@ export default function Pistazo() {
       return () => clearTimeout(t);
     }
     if (g.phase === "clue3") {
-      const t = setTimeout(() => roomUpdateGame({ phase: "answering", clueStartedAt: Date.now() }), CLUE3_SECONDS * 1000);
+      const t = setTimeout(() => {
+        stopClue3Audio();
+        roomUpdateGame({ phase: "answering", clueStartedAt: Date.now() });
+      }, CLUE3_SECONDS * 1000);
       return () => clearTimeout(t);
     }
   }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
@@ -847,14 +850,29 @@ export default function Pistazo() {
     roomUpdateGame({ performerId: teamId, isSteal: true, phase: "answering", clueStartedAt: Date.now() });
   }
 
-  function roomSubmitJury() {
+  function roomSubmitJudgment() {
     const gm = roomData.game;
-    const bonus = roomScores.afinacion + roomScores.ritmo + roomScores.actitud;
+    const raters = roomData.teams.filter((t) => t.id !== gm.wonById);
+    const judgments = { ...(gm.judgments || {}), [myTeamId]: roomScores };
+    const allIn = raters.every((t) => judgments[t.id]);
+    if (!allIn) {
+      roomUpdateGame({ judgments });
+      return;
+    }
+    const sums = raters.reduce(
+      (acc, t) => {
+        const s = judgments[t.id];
+        return { afinacion: acc.afinacion + s.afinacion, ritmo: acc.ritmo + s.ritmo, actitud: acc.actitud + s.actitud };
+      },
+      { afinacion: 0, ritmo: 0, actitud: 0 }
+    );
+    const n = raters.length || 1;
+    const bonus = Math.round((sums.afinacion + sums.ritmo + sums.actitud) / n);
     const rarity = bonus >= 13 ? "brillante" : bonus >= 9 ? "rara" : "normal";
     const figurita = { id: uid(), title: gm.currentSong.title, artist: gm.currentSong.artist, mood: gm.roundGenre, rarity };
     const newTeams = roomData.teams.map((t) => (t.id === gm.performerId ? { ...t, score: t.score + bonus, album: [...(t.album || []), figurita] } : t));
     updateDoc(doc(db, "rooms", roomCode), { teams: newTeams }).catch(() => {});
-    roomUpdateGame({ juryRevealed: true, scores: roomScores });
+    roomUpdateGame({ judgments, phase: "karaokeResult", finalBonus: bonus });
   }
 
   function roomNextRound(resetBlock) {
@@ -1115,12 +1133,14 @@ export default function Pistazo() {
                     <Ring pct={left / seconds} />
                     <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
                   </div>
-                  <div style={{ position: "relative", width: 260, height: 52, overflow: "hidden", borderRadius: 10, background: C.bg }}>
-                    <div ref={clue3ContainerRef} style={{ position: "absolute", top: -100, left: 0, width: 260 }} />
-                    <span style={{ position: "absolute", top: -12, left: -8, fontSize: 32, opacity: 0.95 }}>🎵</span>
-                    <span style={{ position: "absolute", top: -12, right: -8, fontSize: 30, opacity: 0.95 }}>🎶</span>
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca el botón de abajo.</p>
+                  <Btn variant="secondary" onClick={toggleClue3Audio}>Reproducir / pausar</Btn>
+                </div>
+                <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: 140, height: 34, overflow: "hidden", borderRadius: 8, background: C.bg, zIndex: 40 }}>
+                  <div ref={clue3ContainerRef} style={{ position: "absolute", top: -108, left: -60, width: 260 }} />
+                  <div style={{ position: "absolute", inset: 0, background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, pointerEvents: "none" }}>
+                    <span style={{ fontSize: 20 }}>🎵</span><span style={{ fontSize: 20 }}>🎶</span><span style={{ fontSize: 20 }}>🎵</span>
                   </div>
-                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca sobre los íconos.</p>
                 </div>
               </Stage>
             );
@@ -1247,7 +1267,11 @@ export default function Pistazo() {
                       <p style={{ fontSize: 12, letterSpacing: 3, color: C.gold, fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, margin: 0 }}>🥳 ¡GANADORES! 🥳</p>
                       <p style={{ color: C.white, fontSize: 18, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>{winner.name}</p>
                     </div>
-                    <Btn variant="gold" onClick={() => roomUpdateGame({ phase: "karaoke" })}><Mic2 size={18} /> Ir al karaoke</Btn>
+                    {roomData.public ? (
+                      <Btn variant="gold" onClick={roomGoToScoreboard}>Ver marcador</Btn>
+                    ) : (
+                      <Btn variant="gold" onClick={() => roomUpdateGame({ phase: "karaoke" })}><Mic2 size={18} /> Ir al karaoke</Btn>
+                    )}
                   </>
                 ) : (
                   <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>
@@ -1260,48 +1284,36 @@ export default function Pistazo() {
         // --- Karaoke ---
         if (g.phase === "karaoke") {
           const winner = rTeams.find((t) => t.id === g.wonById);
-          return (
-            <Stage>
-              <Header title="¡A cantar!" onBack={leaveRoom} />
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
-                {winner?.avatar && <img src={winner.avatar} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.teal}` }} />}
-                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>{g.currentSong?.title} · {g.currentSong?.artist}</p>
-                {g.currentSong?.spotify && (
-                  <a href={g.currentSong.spotify} target="_blank" rel="noreferrer" style={{ width: "100%", textDecoration: "none" }}>
-                    <Btn variant="gold"><ExternalLink size={18} /> Abrir en Spotify</Btn>
-                  </a>
-                )}
-                {myTeamId === g.juryId ? (
-                  <Btn onClick={() => roomUpdateGame({ phase: "jury" })}><Star size={18} /> Calificar el karaoke</Btn>
-                ) : (
-                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{rJury ? `${rJury.name} va a calificar.` : "Sin jurado esta ronda."}</p>
-                )}
-                {!rJury && <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>}
-              </div>
-            </Stage>
-          );
-        }
+          const raters = rTeams.filter((t) => t.id !== g.wonById);
+          const judgments = g.judgments || {};
+          const submittedCount = raters.filter((t) => judgments[t.id]).length;
 
-        // --- Calificación del jurado ---
-        if (g.phase === "jury") {
-          if (myTeamId !== g.juryId) {
+          if (iAmPerformer) {
             return (
               <Stage>
-                <Header title="Calificando..." onBack={leaveRoom} />
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
-                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>{rJury?.name} está calificando el karaoke...</p>
+                <Header title="¡A cantar!" onBack={leaveRoom} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                  {winner?.avatar && <img src={winner.avatar} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.teal}` }} />}
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>{g.currentSong?.title} · {g.currentSong?.artist}</p>
+                  {g.currentSong?.spotify && (
+                    <a href={g.currentSong.spotify} target="_blank" rel="noreferrer" style={{ width: "100%", textDecoration: "none" }}>
+                      <Btn variant="gold"><ExternalLink size={18} /> Abrir en Spotify</Btn>
+                    </a>
+                  )}
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Calificando: {submittedCount} de {raters.length} equipos</p>
                 </div>
               </Stage>
             );
           }
-          if (g.juryRevealed) {
+
+          // Cualquier equipo que no ganó puede calificar desde su propio celular.
+          const alreadyRated = !!judgments[myTeamId];
+          if (alreadyRated) {
             return (
               <Stage>
-                <Header title="Puntaje" onBack={leaveRoom} />
+                <Header title="¡Gracias!" onBack={leaveRoom} />
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
-                  <Trophy size={40} color={C.gold} />
-                  <span style={{ fontSize: 48, fontWeight: 900, color: C.white }}>+{(g.scores?.afinacion || 0) + (g.scores?.ritmo || 0) + (g.scores?.actitud || 0)}</span>
-                  <Btn onClick={roomGoToScoreboard}>Ver marcador</Btn>
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>Ya calificaste. Esperando a los demás ({submittedCount} de {raters.length})...</p>
                 </div>
               </Stage>
             );
@@ -1310,6 +1322,7 @@ export default function Pistazo() {
             <Stage>
               <Header title="Califica el karaoke" onBack={leaveRoom} />
               <div style={{ display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{winner?.name} está cantando "{g.currentSong?.title}"</p>
                 {[{ key: "afinacion", label: "Afinación" }, { key: "ritmo", label: "Ritmo y sincronía" }, { key: "actitud", label: "Show y actitud" }].map((c) => (
                   <div key={c.key}>
                     <p style={{ color: C.white, fontWeight: 600, marginBottom: 8 }}>{c.label}</p>
@@ -1321,7 +1334,22 @@ export default function Pistazo() {
                   </div>
                 ))}
                 <div style={{ flex: 1 }} />
-                <Btn variant="gold" onClick={roomSubmitJury}><Eye size={18} /> Revelar puntaje</Btn>
+                <Btn variant="gold" onClick={roomSubmitJudgment}><Eye size={18} /> Enviar calificación</Btn>
+              </div>
+            </Stage>
+          );
+        }
+
+        // --- Resultado del karaoke (una vez que todos calificaron) ---
+        if (g.phase === "karaokeResult") {
+          return (
+            <Stage>
+              <Header title="Puntaje de karaoke" onBack={leaveRoom} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+                <Trophy size={40} color={C.gold} />
+                <span style={{ fontSize: 48, fontWeight: 900, color: C.white }}>+{g.finalBonus || 0}</span>
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Promedio de todos los equipos que calificaron</p>
+                <Btn variant="gold" onClick={roomGoToScoreboard}>Ver marcador</Btn>
               </div>
             </Stage>
           );
@@ -1595,20 +1623,18 @@ export default function Pistazo() {
         <Stage>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
             <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>Pista 3 · Escucha</p>
-            <div style={{ background: "rgba(255,61,138,0.12)", border: `2px solid ${C.pink}55`, borderRadius: 16, padding: "12px 16px" }}>
-              <p style={{ color: C.gold, fontWeight: 800, fontSize: 15, margin: 0 }}>
-                ⚠️ {performer?.name}: ¡no miren la pantalla! Que alguien más sostenga el celular y solo escuchen.
-              </p>
-            </div>
             <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Ring pct={timeLeft / CLUE3_SECONDS} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
-            <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
-              <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
-            </div>
             <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Debería sonar solo. Si no arrancó, toca el botón de abajo.</p>
             <Btn variant="secondary" onClick={toggleClue3Audio}>Reproducir / pausar</Btn>
+          </div>
+          <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", width: 140, height: 34, overflow: "hidden", borderRadius: 8, background: C.bg, zIndex: 40 }}>
+            <div ref={clue3ContainerRef} style={{ position: "absolute", top: -108, left: -60, width: 260 }} />
+            <div style={{ position: "absolute", inset: 0, background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, pointerEvents: "none" }}>
+              <span style={{ fontSize: 20 }}>🎵</span><span style={{ fontSize: 20 }}>🎶</span><span style={{ fontSize: 20 }}>🎵</span>
+            </div>
           </div>
         </Stage>
       )}
