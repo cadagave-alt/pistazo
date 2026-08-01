@@ -11,6 +11,7 @@ const FORMATOS = ["Solo", "Dúo", "Grupo"];
 const AVATARS = ["/avatars/avatar1.png", "/avatars/avatar2.png", "/avatars/avatar3.png", "/avatars/avatar4.png", "/avatars/avatar5.png", "/avatars/avatar6.png", "/avatars/avatar7.png", "/avatars/avatar8.png"];
 const CLUE_SECONDS = 5;
 const CLUE3_SECONDS = 5;
+const CLUE3_INTRO_SECONDS = 5;
 const ANSWER_SECONDS = 15;
 const COUNT_SECONDS = 3;
 const REVEAL_DELAY = 3;
@@ -24,6 +25,46 @@ function stableSongId(title, artist) {
     hash = (hash * 31 + str.charCodeAt(i)) | 0;
   }
   return "s" + Math.abs(hash).toString(36);
+}
+
+/* ---------- Sonidos generados por el navegador (sin archivos, sin derechos de autor) ---------- */
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function playTone(freq, startOffset, duration, type = "sine", peakVol = 0.2) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  const t0 = ctx.currentTime + startOffset;
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(peakVol, t0 + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.05);
+}
+
+function playClickSound() {
+  playTone(520, 0, 0.09, "square", 0.12);
+}
+
+function playWinSound() {
+  [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playTone(f, i * 0.09, 0.25, "triangle", 0.18));
+}
+
+function playIntroJingle() {
+  const notes = [392, 523.25, 659.25, 783.99, 659.25, 783.99, 987.77];
+  notes.forEach((f, i) => playTone(f, i * 0.28, 0.4, "sine", 0.15));
 }
 
 function uid() {
@@ -122,6 +163,7 @@ function Stage({ children }) {
 function AvatarPicker({ selected, onSelect }) {
   const idx = Math.max(0, AVATARS.indexOf(selected));
   function go(delta) {
+    playClickSound();
     const next = (idx + delta + AVATARS.length) % AVATARS.length;
     onSelect(AVATARS[next]);
   }
@@ -233,6 +275,14 @@ export default function Pistazo() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [albumTeamId, setAlbumTeamId] = useState(null);
   const wakeLockRef = useRef(null);
+  const hasPlayedIntroRef = useRef(false);
+
+  useEffect(() => {
+    if (screen === "home" && !hasPlayedIntroRef.current) {
+      hasPlayedIntroRef.current = true;
+      try { playIntroJingle(); } catch (e) { /* el navegador puede bloquear el audio sin interacción previa */ }
+    }
+  }, [screen]);
   const spotifyApiRef = useRef(null);
   const spotifyControllerRef = useRef(null);
   const clue3ContainerRef = useRef(null);
@@ -545,6 +595,7 @@ export default function Pistazo() {
   }
 
   function selectSongByGenero(generoFilter) {
+    playClickSound();
     const pool = getAllSongsFlat().filter((s) => {
       if (usedIds.includes(s.id)) return false;
       if (generoFilter && generoFilter !== "Todos" && s.genero !== generoFilter) return false;
@@ -618,8 +669,11 @@ export default function Pistazo() {
       setScreen("clue2");
       runCountdown(CLUE_SECONDS, setTimeLeft, () => {
         if (getSpotifyTrackId(currentSong?.spotify)) {
-          setScreen("clue3");
-          runCountdown(CLUE3_SECONDS, setTimeLeft, goToCountdown);
+          setScreen("clue3intro");
+          runCountdown(CLUE3_INTRO_SECONDS, setTimeLeft, () => {
+            setScreen("clue3");
+            runCountdown(CLUE3_SECONDS, setTimeLeft, goToCountdown);
+          });
         } else {
           goToCountdown();
         }
@@ -704,6 +758,7 @@ export default function Pistazo() {
     setCorrect(isCorrect);
     if (isCorrect) {
       vibrate([80, 40, 80, 40, 160]);
+      playWinSound();
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 2200);
       const pts = isSteal ? STEAL_POINTS : GUESS_POINTS;
@@ -810,7 +865,11 @@ export default function Pistazo() {
     }
     if (g.phase === "clue2") {
       const hasAudio = !!getSpotifyTrackId(g.currentSong?.spotify);
-      const t = setTimeout(() => roomUpdateGame(hasAudio ? { phase: "clue3", clueStartedAt: Date.now() } : { phase: "answering", clueStartedAt: Date.now() }), CLUE_SECONDS * 1000);
+      const t = setTimeout(() => roomUpdateGame(hasAudio ? { phase: "clue3intro", clueStartedAt: Date.now() } : { phase: "answering", clueStartedAt: Date.now() }), CLUE_SECONDS * 1000);
+      return () => clearTimeout(t);
+    }
+    if (g.phase === "clue3intro") {
+      const t = setTimeout(() => roomUpdateGame({ phase: "clue3", clueStartedAt: Date.now() }), CLUE3_INTRO_SECONDS * 1000);
       return () => clearTimeout(t);
     }
     if (g.phase === "clue3") {
@@ -835,6 +894,7 @@ export default function Pistazo() {
   }
 
   function roomSelectGenero(g) {
+    playClickSound();
     const gm = roomData.game;
     const pool = getAllSongsFlat().filter((s) => !(gm.usedIds || []).includes(s.id) && (g === "Todos" || s.genero === g));
     if (pool.length === 0) { alert("No quedan canciones sin usar en ese género."); return; }
@@ -852,6 +912,7 @@ export default function Pistazo() {
     setGuessInputRoom("");
     if (isCorrect) {
       vibrate([80, 40, 80, 40, 160]);
+      playWinSound();
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 2200);
       const pts = gm.isSteal ? STEAL_POINTS : GUESS_POINTS;
@@ -1126,9 +1187,25 @@ export default function Pistazo() {
         }
 
         // --- Pistas 1, 2 y 3 ---
-        if (g.phase === "clue1" || g.phase === "clue2" || g.phase === "clue3") {
-          const seconds = g.phase === "clue3" ? CLUE3_SECONDS : CLUE_SECONDS;
+        if (g.phase === "clue1" || g.phase === "clue2" || g.phase === "clue3intro" || g.phase === "clue3") {
+          const seconds = g.phase === "clue3" ? CLUE3_SECONDS : g.phase === "clue3intro" ? CLUE3_INTRO_SECONDS : CLUE_SECONDS;
           const left = roomTimeLeft(seconds, g.clueStartedAt);
+
+          if (g.phase === "clue3intro") {
+            return (
+              <Stage>
+                <Header title="Pista 3" onBack={leaveRoom} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Ring pct={left / seconds} color={C.teal} />
+                    <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
+                  </div>
+                  <h2 style={{ fontSize: 24, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>🤫 ¡Vamos a escuchar!!!</h2>
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Silencio... la pista de audio ya viene.</p>
+                </div>
+              </Stage>
+            );
+          }
 
           if (g.phase === "clue3" && !iAmPerformer) {
             return (
@@ -1633,6 +1710,19 @@ export default function Pistazo() {
                 <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: 0 }}>{performer.name} está adivinando</p>
               </div>
             )}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "clue3intro" && currentSong && (
+        <Stage>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Ring pct={timeLeft / CLUE3_INTRO_SECONDS} color={C.teal} />
+              <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{timeLeft}</span>
+            </div>
+            <h2 style={{ fontSize: 26, fontWeight: 900, color: C.white, fontFamily: "'Baloo 2', sans-serif", margin: 0 }}>🤫 ¡Vamos a escuchar!!!</h2>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Silencio... la pista de audio ya viene.</p>
           </div>
         </Stage>
       )}
