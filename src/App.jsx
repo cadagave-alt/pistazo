@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
-import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check } from "lucide-react";
+import { Music, Mic2, Trophy, Plus, Trash2, Users, Play, Shuffle, ChevronLeft, RotateCcw, Star, ExternalLink, Eye, EyeOff, Sparkles, Upload, Check, Copy, Globe, UserPlus } from "lucide-react";
+import { db } from "./firebase";
+import { doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp, collection, query, where, getDocs, limit } from "firebase/firestore";
 
 const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", white: "#FFFFFF" };
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
@@ -148,6 +150,12 @@ export default function Pistazo() {
   const [wonById, setWonById] = useState(null);
   const [guessInput, setGuessInput] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [roomCode, setRoomCode] = useState(null);
+  const [roomData, setRoomData] = useState(null);
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [newTeamNameOnline, setNewTeamNameOnline] = useState("");
+  const [onlineError, setOnlineError] = useState("");
+  const roomUnsubRef = useRef(null);
   const timerRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -300,6 +308,102 @@ export default function Pistazo() {
     setHasSeenInstructions(true);
     setScreen(goToTeams ? "teams" : "home");
   }
+
+  function generateRoomCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  function subscribeToRoom(code) {
+    if (roomUnsubRef.current) roomUnsubRef.current();
+    const roomRef = doc(db, "rooms", code);
+    roomUnsubRef.current = onSnapshot(roomRef, (snap) => {
+      if (snap.exists()) {
+        setRoomData({ id: snap.id, ...snap.data() });
+        setRoomCode(snap.id);
+      }
+    });
+  }
+
+  async function createRoom(isPublic) {
+    setOnlineError("");
+    const code = generateRoomCode();
+    const roomRef = doc(db, "rooms", code);
+    await setDoc(roomRef, {
+      code,
+      public: isPublic,
+      status: "waiting",
+      createdAt: serverTimestamp(),
+      teams: [],
+    });
+    subscribeToRoom(code);
+    setScreen("onlineLobby");
+  }
+
+  async function joinRoomWithCode() {
+    setOnlineError("");
+    const code = joinCodeInput.trim().toUpperCase();
+    if (!code) return;
+    try {
+      const roomRef = doc(db, "rooms", code);
+      const snap = await getDoc(roomRef);
+      if (!snap.exists()) { setOnlineError("No existe una sala con ese código."); return; }
+      subscribeToRoom(code);
+      setScreen("joinTeamName");
+    } catch (e) {
+      setOnlineError("No se pudo conectar. Revisa tu internet e intenta de nuevo.");
+    }
+  }
+
+  async function joinRandomRoom() {
+    setOnlineError("Buscando partida...");
+    try {
+      const q = query(collection(db, "rooms"), where("public", "==", true), where("status", "==", "waiting"), limit(5));
+      const snaps = await getDocs(q);
+      if (!snaps.empty) {
+        const roomDoc = snaps.docs[0];
+        subscribeToRoom(roomDoc.id);
+        setOnlineError("");
+        setScreen("joinTeamName");
+      } else {
+        await createRoom(true);
+      }
+    } catch (e) {
+      setOnlineError("No se pudo buscar partida. Intenta de nuevo.");
+    }
+  }
+
+  async function addTeamToRoom() {
+    if (!roomCode || !newTeamNameOnline.trim()) return;
+    const roomRef = doc(db, "rooms", roomCode);
+    const newTeam = { id: uid(), name: newTeamNameOnline.trim(), score: 0 };
+    await updateDoc(roomRef, { teams: arrayUnion(newTeam) });
+    setNewTeamNameOnline("");
+    setScreen("onlineLobby");
+  }
+
+  function leaveRoom() {
+    if (roomUnsubRef.current) { roomUnsubRef.current(); roomUnsubRef.current = null; }
+    setRoomData(null);
+    setRoomCode(null);
+    setOnlineError("");
+    setScreen("home");
+  }
+
+  function copyRoomLink() {
+    const link = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
+    navigator.clipboard?.writeText(link).catch(() => {});
+    alert("Link copiado: " + link);
+  }
+
+  // Si alguien abre la app con un link de invitación (?join=CODIGO), precarga el código
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinParam = params.get("join");
+    if (joinParam) setJoinCodeInput(joinParam.toUpperCase());
+  }, []);
 
   function addTeam() {
     if (!teamInput.trim() || teams.length >= 5) return;
@@ -554,10 +658,87 @@ export default function Pistazo() {
               <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8, fontSize: 14 }}>Adivina la canción. Gana la ronda. Cántala como si fuera tuya.</p>
             </div>
             <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-              <Btn onClick={() => setScreen(hasSeenInstructions ? "teams" : "instructions")}><Users size={18} /> Jugar</Btn>
+              <Btn onClick={() => setScreen(hasSeenInstructions ? "teams" : "instructions")}><Users size={18} /> Jugar local</Btn>
+              <Btn variant="teal" onClick={() => setScreen("onlineHome")}><Globe size={18} /> Jugar online</Btn>
               <Btn variant="secondary" onClick={() => setScreen("instructions")}>Cómo jugar</Btn>
             </div>
           </div>
+        </Stage>
+      )}
+
+      {screen === "onlineHome" && (
+        <Stage>
+          <Header title="Jugar online" onBack={() => setScreen("home")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Crea una sala e invita a tus amigos con un código, o busca una partida abierta.</p>
+            <Btn variant="gold" onClick={() => createRoom(false)}><UserPlus size={18} /> Crear sala e invitar amigos</Btn>
+            <Btn variant="teal" onClick={joinRandomRoom}><Shuffle size={18} /> Partida aleatoria</Btn>
+            <Btn variant="secondary" onClick={() => setScreen("joinCode")}>Unirme con un código</Btn>
+            {onlineError && <p style={{ color: C.pink, fontSize: 13 }}>{onlineError}</p>}
+          </div>
+        </Stage>
+      )}
+
+      {screen === "joinCode" && (
+        <Stage>
+          <Header title="Unirme a una sala" onBack={() => setScreen("onlineHome")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Pide el código de 4 letras a quien creó la sala.</p>
+            <input
+              value={joinCodeInput}
+              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+              placeholder="EJ: AB3X"
+              maxLength={4}
+              style={{ ...S.input, textAlign: "center", fontSize: 28, letterSpacing: 6, fontWeight: 900, textTransform: "uppercase" }}
+            />
+            {onlineError && <p style={{ color: C.pink, fontSize: 13 }}>{onlineError}</p>}
+            <Btn variant="gold" onClick={joinRoomWithCode}>Unirme</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "joinTeamName" && (
+        <Stage>
+          <Header title="Crea tu equipo" onBack={leaveRoom} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Sala <strong style={{ color: C.gold }}>{roomCode}</strong> — ponle nombre a tu equipo.</p>
+            <input
+              value={newTeamNameOnline}
+              onChange={(e) => setNewTeamNameOnline(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addTeamToRoom()}
+              placeholder="Nombre del equipo"
+              style={S.input}
+            />
+            <Btn variant="gold" onClick={addTeamToRoom}>Crear equipo y entrar</Btn>
+          </div>
+        </Stage>
+      )}
+
+      {screen === "onlineLobby" && (
+        <Stage>
+          <Header title="Sala de espera" onBack={leaveRoom} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+            <div style={{ ...S.card, textAlign: "center" }}>
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Código de la sala</p>
+              <p style={{ color: C.gold, fontSize: 40, fontWeight: 900, letterSpacing: 8, margin: 0 }}>{roomCode}</p>
+              <Btn variant="secondary" onClick={copyRoomLink} style={{ marginTop: 12 }}><Copy size={16} /> Copiar link para invitar</Btn>
+            </div>
+            <p style={S.label}>Equipos en la sala ({(roomData?.teams || []).length})</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(roomData?.teams || []).map((t) => (
+                <div key={t.id} style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", color: C.white, fontWeight: 600 }}>{t.name}</div>
+              ))}
+              {(!roomData?.teams || roomData.teams.length === 0) && (
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Todavía no se ha unido ningún equipo.</p>
+              )}
+            </div>
+            {!(roomData?.teams || []).some((t) => t.name === newTeamNameOnline) && (
+              <Btn variant="ghost" onClick={() => setScreen("joinTeamName")}>+ Agregar mi equipo también</Btn>
+            )}
+          </div>
+          <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, textAlign: "center" }}>
+            La sincronización del juego en vivo (pistas, puntajes por ronda) es el siguiente paso — por ahora, la sala arma los equipos en tiempo real.
+          </p>
         </Stage>
       )}
 
