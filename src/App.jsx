@@ -463,6 +463,7 @@ export default function Pistazo() {
   }
 
   function leaveRoom() {
+    releaseWakeLock();
     if (roomUnsubRef.current) { roomUnsubRef.current(); roomUnsubRef.current = null; }
     setRoomData(null);
     setRoomCode(null);
@@ -711,6 +712,16 @@ export default function Pistazo() {
     setWonById(null);
     setScreen("scoreboard");
   }
+
+  // Mantiene la pantalla encendida en TODOS los celulares mientras estén en la partida conectada,
+  // no solo el que está adivinando.
+  useEffect(() => {
+    if (screen === "roomGame") {
+      requestWakeLock();
+    } else if (!roomCode) {
+      releaseWakeLock();
+    }
+  }, [screen, roomCode]);
 
   function roomUpdateGame(patch) {
     if (!roomCode) return Promise.resolve();
@@ -1051,6 +1062,49 @@ export default function Pistazo() {
         if (g.phase === "clue1" || g.phase === "clue2" || g.phase === "clue3") {
           const seconds = g.phase === "clue3" ? CLUE3_SECONDS : CLUE_SECONDS;
           const left = roomTimeLeft(seconds, g.clueStartedAt);
+
+          // Pista 3 (audio): nunca se muestra en el celular de quien adivina. La reproduce el jurado
+          // (o cualquier otro celular si no hay jurado), y todos escuchan de ahí en voz alta.
+          if (g.phase === "clue3" && iAmPerformer) {
+            return (
+              <Stage>
+                <Header title="Escucha" onBack={leaveRoom} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Ring pct={left / seconds} />
+                    <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
+                  </div>
+                  <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 16 }}>🎧 Escucha con atención — el audio suena en otro celular.</p>
+                </div>
+              </Stage>
+            );
+          }
+          if (g.phase === "clue3" && !iAmPerformer) {
+            const shouldPlayHere = myTeamId === g.juryId || !g.juryId;
+            return (
+              <Stage>
+                <Header title="Pista 3 · Audio" onBack={leaveRoom} />
+                <ScoreStrip />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Ring pct={left / seconds} />
+                    <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
+                  </div>
+                  {shouldPlayHere ? (
+                    <>
+                      <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
+                        <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
+                      </div>
+                      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Sube el volumen para que {rPerformer?.name} alcance a escuchar.</p>
+                    </>
+                  ) : (
+                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>Sonando en el celular de {rJury?.name || "otro equipo"}...</p>
+                  )}
+                </div>
+              </Stage>
+            );
+          }
+
           if (!iAmPerformer) {
             return (
               <Stage>
@@ -1068,26 +1122,17 @@ export default function Pistazo() {
               <Header title="Tus pistas" onBack={leaveRoom} />
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
                 <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>
-                  Pista {g.phase === "clue1" ? "1" : g.phase === "clue2" ? "2" : "3 · Escucha"}
+                  Pista {g.phase === "clue1" ? "1" : "2"}
                 </p>
                 <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Ring pct={left / seconds} />
                   <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(left)}</span>
                 </div>
-                {g.phase !== "clue3" ? (
-                  <div style={{ background: "rgba(255,61,138,0.12)", borderRadius: 24, padding: "30px 22px", border: `2px solid ${C.pink}55`, maxWidth: 340 }}>
-                    <p style={{ color: C.gold, fontSize: 26, fontWeight: 800, lineHeight: 1.35, margin: 0 }}>
-                      {g.phase === "clue1" ? g.currentSong?.artist : g.currentSong?.clue2}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ position: "relative", width: "100%", maxWidth: 340, height: 60, overflow: "hidden", borderRadius: 12, background: C.bg }}>
-                      <div ref={clue3ContainerRef} style={{ position: "absolute", top: -92, left: 0, width: "100%" }} />
-                    </div>
-                    <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>⚠️ ¡No mires si alguien más va a escuchar contigo!</p>
-                  </>
-                )}
+                <div style={{ background: "rgba(255,61,138,0.12)", borderRadius: 24, padding: "30px 22px", border: `2px solid ${C.pink}55`, maxWidth: 340 }}>
+                  <p style={{ color: C.gold, fontSize: 26, fontWeight: 800, lineHeight: 1.35, margin: 0 }}>
+                    {g.phase === "clue1" ? g.currentSong?.artist : g.currentSong?.clue2}
+                  </p>
+                </div>
               </div>
             </Stage>
           );
