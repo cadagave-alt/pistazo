@@ -911,7 +911,7 @@ export default function Pistazo() {
     }
     if (g.phase === "clue2") {
       const hasAudio = !!getSpotifyTrackId(g.currentSong?.spotify);
-      const t = setTimeout(() => roomUpdateGame(hasAudio ? { phase: "clue3intro", clueStartedAt: Date.now() } : { phase: "answering", clueStartedAt: Date.now() }), CLUE_SECONDS * 1000);
+      const t = setTimeout(() => roomUpdateGame(hasAudio ? { phase: "clue3intro", clueStartedAt: Date.now() } : { phase: "answering", answerStartedAt: Date.now() }), CLUE_SECONDS * 1000);
       return () => clearTimeout(t);
     }
     if (g.phase === "clue3intro") {
@@ -927,7 +927,12 @@ export default function Pistazo() {
       }, Math.max(0, remaining));
       return () => { clearTimeout(t); if (decisionTimeout) clearTimeout(decisionTimeout); };
     }
-  }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
+    if (g.phase === "answering" && g.answerStartedAt) {
+      const remaining = ANSWER_SECONDS * 1000 - (Date.now() - g.answerStartedAt);
+      const t = setTimeout(() => roomCheckAnswer(), Math.max(0, remaining));
+      return () => clearTimeout(t);
+    }
+  }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, roomData?.game?.answerStartedAt, myTeamId, roomCode]);
 
   // Ticker liviano solo para refrescar los anillos de tiempo en pantalla (no escribe nada).
   useEffect(() => {
@@ -987,7 +992,7 @@ export default function Pistazo() {
 
   function roomContinueFromClue3() {
     stopClue3Audio();
-    roomUpdateGame({ phase: "answering" });
+    roomUpdateGame({ phase: "answering", answerStartedAt: Date.now() });
   }
 
   function roomOfferSteal(teamId) {
@@ -1382,6 +1387,10 @@ export default function Pistazo() {
               <Header title="¡Responde!" onBack={leaveRoom} />
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
                 {g.isSteal && <p style={{ color: C.gold, fontSize: 12, textTransform: "uppercase" }}>Intento de robo</p>}
+                <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Ring pct={roomTimeLeft(ANSWER_SECONDS, g.answerStartedAt) / ANSWER_SECONDS} color={C.teal} />
+                  <span style={{ position: "absolute", fontSize: 32, fontWeight: 900, color: C.white }}>{Math.ceil(roomTimeLeft(ANSWER_SECONDS, g.answerStartedAt))}</span>
+                </div>
                 <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 15 }}>Escribe el título de la canción</p>
                 <input
                   autoFocus value={guessInputRoom} onChange={(e) => setGuessInputRoom(e.target.value)}
