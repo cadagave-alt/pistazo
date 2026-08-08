@@ -258,6 +258,8 @@ export default function Pistazo() {
   const [guessInput, setGuessInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [clue3Started, setClue3Started] = useState(false);
+  const [clue3TimerDone, setClue3TimerDone] = useState(false);
+  const [clue3Replays, setClue3Replays] = useState(0);
   const [roomCode, setRoomCode] = useState(null);
   const [roomData, setRoomData] = useState(null);
   const [joinCodeInput, setJoinCodeInput] = useState("");
@@ -575,10 +577,10 @@ export default function Pistazo() {
   function startRound(isFresh) {
     requestWakeLock();
     if (isFresh) { setSongsPlayedLocal(0); setLocalGameEnded(false); }
-    setScreen("lobby");
     setPerformerId(teams[0]?.id || null);
     const other = teams.find((t) => t.id !== teams[0]?.id);
     setJuryId(other?.id || null);
+    setScreen(teams.length > 1 ? "lobby" : "pickGenero");
   }
 
   function endSession() {
@@ -654,8 +656,17 @@ export default function Pistazo() {
   function startClue3Playback() {
     if (clue3Started) return;
     setClue3Started(true);
+    setClue3TimerDone(false);
     try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
-    runCountdown(CLUE3_SECONDS, setTimeLeft, goToCountdown);
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => setClue3TimerDone(true));
+  }
+
+  function repeatClue3() {
+    if (clue3Replays >= 3) return;
+    setClue3Replays((n) => n + 1);
+    setClue3TimerDone(false);
+    try { spotifyControllerRef.current && spotifyControllerRef.current.seek(0); spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => setClue3TimerDone(true));
   }
 
   function goToCountdown() {
@@ -677,6 +688,8 @@ export default function Pistazo() {
           setScreen("clue3intro");
           runCountdown(CLUE3_INTRO_SECONDS, setTimeLeft, () => {
             setClue3Started(false);
+            setClue3TimerDone(false);
+            setClue3Replays(0);
             setTimeLeft(CLUE3_SECONDS);
             setScreen("clue3");
           });
@@ -878,14 +891,6 @@ export default function Pistazo() {
       const t = setTimeout(() => roomUpdateGame({ phase: "clue3", clueStartedAt: null }), CLUE3_INTRO_SECONDS * 1000);
       return () => clearTimeout(t);
     }
-    if (g.phase === "clue3") {
-      if (!g.clueStartedAt) return; // esperando que le den play
-      const t = setTimeout(() => {
-        stopClue3Audio();
-        roomUpdateGame({ phase: "answering", clueStartedAt: Date.now() });
-      }, CLUE3_SECONDS * 1000);
-      return () => clearTimeout(t);
-    }
   }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
 
   // Ticker liviano solo para refrescar los anillos de tiempo en pantalla (no escribe nada).
@@ -909,7 +914,7 @@ export default function Pistazo() {
     roomUpdateGame({
       phase: "clue1", roundGenre: g, currentSong: song,
       usedIds: [...(gm.usedIds || []), song.id], clueStartedAt: Date.now(),
-      isSteal: false, wonById: null, attemptedIds: [],
+      isSteal: false, wonById: null, attemptedIds: [], clue3Replays: 0,
     });
   }
 
@@ -935,6 +940,18 @@ export default function Pistazo() {
   function roomStartClue3Audio() {
     try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
     roomUpdateGame({ clueStartedAt: Date.now() });
+  }
+
+  function roomRepeatClue3() {
+    const replays = roomData.game.clue3Replays || 0;
+    if (replays >= 3) return;
+    try { spotifyControllerRef.current && spotifyControllerRef.current.seek(0); spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
+    roomUpdateGame({ clueStartedAt: Date.now(), clue3Replays: replays + 1 });
+  }
+
+  function roomContinueFromClue3() {
+    stopClue3Audio();
+    roomUpdateGame({ phase: "answering" });
   }
 
   function roomOfferSteal(teamId) {
@@ -1232,6 +1249,8 @@ export default function Pistazo() {
             );
           }
           if (g.phase === "clue3" && iAmPerformer) {
+            const finished = !!g.clueStartedAt && left <= 0;
+            const replays = g.clue3Replays || 0;
             return (
               <Stage>
                 <Header title="Pista 3 · Escucha" onBack={leaveRoom} />
@@ -1244,6 +1263,14 @@ export default function Pistazo() {
                     <>
                       <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>Toca para escuchar el fragmento</p>
                       <Btn variant="gold" onClick={roomStartClue3Audio}>▶ Reproducir pista</Btn>
+                    </>
+                  ) : finished ? (
+                    <>
+                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({3 - replays} repeticiones disponibles)</p>
+                      <div style={{ display: "flex", gap: 12, width: "100%" }}>
+                        {replays < 3 && <Btn variant="secondary" onClick={roomRepeatClue3}>🔁 Repetir</Btn>}
+                        <Btn variant="gold" onClick={roomContinueFromClue3}>Continuar</Btn>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -1625,7 +1652,7 @@ export default function Pistazo() {
               <RotateCcw size={12} /> Reiniciar canciones ya usadas
             </button>
           )}
-          <Btn disabled={!performerId || !juryId} onClick={() => setScreen("pickGenero")}>Continuar</Btn>
+          <Btn disabled={!performerId || (teams.length > 1 && !juryId)} onClick={() => setScreen("pickGenero")}>Continuar</Btn>
         </Stage>
       )}
 
@@ -1760,6 +1787,14 @@ export default function Pistazo() {
               <>
                 <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>Toca para escuchar el fragmento</p>
                 <Btn variant="gold" onClick={startClue3Playback}>▶ Reproducir pista</Btn>
+              </>
+            ) : clue3TimerDone ? (
+              <>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({3 - clue3Replays} repeticiones disponibles)</p>
+                <div style={{ display: "flex", gap: 12, width: "100%" }}>
+                  {clue3Replays < 3 && <Btn variant="secondary" onClick={repeatClue3}>🔁 Repetir</Btn>}
+                  <Btn variant="gold" onClick={goToCountdown}>Continuar</Btn>
+                </div>
               </>
             ) : (
               <>
