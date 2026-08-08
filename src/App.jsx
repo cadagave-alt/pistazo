@@ -658,15 +658,15 @@ export default function Pistazo() {
     setClue3Started(true);
     setClue3TimerDone(false);
     try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
-    runCountdown(CLUE3_SECONDS, setTimeLeft, () => setClue3TimerDone(true));
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => { stopClue3Audio(); setClue3TimerDone(true); });
   }
 
   function repeatClue3() {
-    if (clue3Replays >= 3) return;
+    if (clue3Replays >= 2) return;
     setClue3Replays((n) => n + 1);
     setClue3TimerDone(false);
     try { spotifyControllerRef.current && spotifyControllerRef.current.seek(0); spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
-    runCountdown(CLUE3_SECONDS, setTimeLeft, () => setClue3TimerDone(true));
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => { stopClue3Audio(); setClue3TimerDone(true); });
   }
 
   function goToCountdown() {
@@ -891,6 +891,12 @@ export default function Pistazo() {
       const t = setTimeout(() => roomUpdateGame({ phase: "clue3", clueStartedAt: null }), CLUE3_INTRO_SECONDS * 1000);
       return () => clearTimeout(t);
     }
+    if (g.phase === "clue3" && g.clueStartedAt) {
+      const remaining = CLUE3_SECONDS * 1000 - (Date.now() - g.clueStartedAt);
+      if (remaining <= 0) { stopClue3Audio(); return; }
+      const t = setTimeout(() => stopClue3Audio(), remaining);
+      return () => clearTimeout(t);
+    }
   }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
 
   // Ticker liviano solo para refrescar los anillos de tiempo en pantalla (no escribe nada).
@@ -944,7 +950,7 @@ export default function Pistazo() {
 
   function roomRepeatClue3() {
     const replays = roomData.game.clue3Replays || 0;
-    if (replays >= 3) return;
+    if (replays >= 2) return;
     try { spotifyControllerRef.current && spotifyControllerRef.current.seek(0); spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
     roomUpdateGame({ clueStartedAt: Date.now(), clue3Replays: replays + 1 });
   }
@@ -1076,7 +1082,7 @@ export default function Pistazo() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
             <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>¿Con quién juegas?</p>
             <Btn variant="teal" onClick={joinRandomRoom}><Globe size={18} /> Con alguien conectado</Btn>
-            <Btn variant="secondary" onClick={() => setScreen("soloSetup")}>Solo, contra el reloj</Btn>
+            <Btn variant="secondary" onClick={() => setScreen("soloSetup")}>Solo</Btn>
             {onlineError && <p style={{ color: C.pink, fontSize: 13 }}>{onlineError}</p>}
           </div>
         </Stage>
@@ -1084,7 +1090,7 @@ export default function Pistazo() {
 
       {screen === "soloSetup" && (
         <Stage>
-          <Header title="Práctica solo" onBack={() => setScreen("randomHome")} />
+          <Header title="Solo" onBack={() => setScreen("randomHome")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
             <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Juegas solo, contra el reloj — sin jurado ni karaoke calificado.</p>
             <input value={soloNameInput} onChange={(e) => setSoloNameInput(e.target.value)} placeholder="Tu nombre (opcional)" style={S.input} />
@@ -1266,9 +1272,9 @@ export default function Pistazo() {
                     </>
                   ) : finished ? (
                     <>
-                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({3 - replays} repeticiones disponibles)</p>
+                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({2 - replays} repeticiones disponibles)</p>
                       <div style={{ display: "flex", gap: 12, width: "100%" }}>
-                        {replays < 3 && <Btn variant="secondary" onClick={roomRepeatClue3}>🔁 Repetir</Btn>}
+                        {replays < 2 && <Btn variant="secondary" onClick={roomRepeatClue3}>🔁 Repetir</Btn>}
                         <Btn variant="gold" onClick={roomContinueFromClue3}>Continuar</Btn>
                       </div>
                     </>
@@ -1541,12 +1547,14 @@ export default function Pistazo() {
           <Header title="Cómo jugar" onBack={() => setScreen("home")} />
           <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
             {[
-              { n: "1", t: "Formen equipos", d: "Hasta 5 equipos. Un integrante pasa a adivinar; otro equipo completo es el jurado secreto." },
-              { n: "2", t: "Elijan en cadena", d: "El equipo que adivina elige el género musical, el siguiente equipo elige el tema, y el siguiente el formato." },
-              { n: "3", t: "Tres pistas", d: "Una frase textual de la canción, una pista indirecta y, si hay audio disponible, un fragmento para escuchar. Luego, a la cuenta de 3, digan el título." },
-              { n: "4", t: "¿No la acertaron?", d: "Otro equipo puede robar el turno por la mitad de los puntos." },
-              { n: "5", t: "Karaoke y calificación", d: "Si aciertan, cantan con la letra en Spotify mientras el jurado califica en secreto: afinación, ritmo y actitud." },
-              { n: "6", t: "Álbum de figuritas", d: "Cada canción ganada se suma al álbum del equipo — las más brillantes son las mejor cantadas." },
+              { n: "1", t: "Elige tu modo", d: "En grupo (crea una sala e invita con un código, o únete a una), o aleatorio (con alguien conectado o solo, contra el reloj)." },
+              { n: "2", t: "Elige el género", d: "Al equipo que le toca adivinar elige el género musical de una lista completa." },
+              { n: "3", t: "Tres pistas", d: "El nombre del artista, una pista indirecta, y un fragmento de audio — este último lo puedes escuchar hasta 3 veces." },
+              { n: "4", t: "Responde", d: "Escribe o di en voz alta el título de la canción — la app lo verifica sola, sin necesidad de jurado." },
+              { n: "5", t: "¿No acertaron?", d: "Otro equipo puede robar el turno por la mitad de los puntos." },
+              { n: "6", t: "Karaoke y calificación", d: "Si aciertan, cantan con la letra en Spotify mientras todos los demás equipos califican en secreto desde su propio celular: afinación, ritmo y actitud. Se promedia entre todos." },
+              { n: "7", t: "Álbum de figuritas", d: "Cada canción ganada se suma al álbum del equipo — las más brillantes son las mejor cantadas." },
+              { n: "8", t: "Bloques de 5 canciones", d: "Al terminar cada 5 canciones, deciden si siguen con otro bloque o cierran la partida con el resultado final." },
             ].map((s) => (
               <div key={s.n} style={{ display: "flex", gap: 12 }}>
                 <div style={{ width: 28, height: 28, borderRadius: 999, background: C.pink, color: C.white, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13 }}>{s.n}</div>
@@ -1666,42 +1674,24 @@ export default function Pistazo() {
             </Stage>
           );
         }
-        const current = availableGenres.includes(pendingGenero) ? pendingGenero : availableGenres[0];
-        const idx = availableGenres.indexOf(current);
-        function goGenre(delta) {
-          const next = (idx + delta + availableGenres.length) % availableGenres.length;
-          setPendingGenero(availableGenres[next]);
-        }
         return (
           <Stage>
             <Header title="Elige el género" onBack={() => setScreen("lobby")} />
             <MiniScoreboard teams={teams} />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 20 }}>
               {performer?.avatar && <img src={performer.avatar} alt="" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: `2px solid ${C.gold}` }} />}
               <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, margin: 0 }}>
                 Le toca a <strong style={{ color: C.white }}>{performer?.name}</strong>
               </p>
             </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                <button onClick={() => goGenre(-1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer" }}>
-                  <ChevronLeft size={22} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, overflowY: "auto" }}>
+              {availableGenres.map((g) => (
+                <button key={g} onClick={() => selectSongByGenero(g)} style={{ padding: "18px 12px", borderRadius: 18, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", fontSize: 15, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, boxShadow: "0 6px 16px rgba(0,0,0,0.2)" }}>
+                  <span style={{ fontSize: 26 }}>{genreEmoji(g)}</span>
+                  {g}
                 </button>
-                <div key={current} style={{ width: 160, height: 160, borderRadius: 24, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 10px 26px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, animation: "pz-zoomin 0.3s ease" }}>
-                  <span style={{ fontSize: 56 }}>{genreEmoji(current)}</span>
-                  <span style={{ color: C.white, fontWeight: 800, fontFamily: "'Baloo 2', sans-serif", fontSize: 18 }}>{current}</span>
-                </div>
-                <button onClick={() => goGenre(1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 999, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, cursor: "pointer" }}>
-                  <ChevronRight size={22} />
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                {availableGenres.map((g, i) => (
-                  <span key={g} style={{ width: 6, height: 6, borderRadius: "50%", background: i === idx ? C.gold : "rgba(255,255,255,0.25)" }} />
-                ))}
-              </div>
+              ))}
             </div>
-            <Btn variant="gold" onClick={() => selectSongByGenero(current)}>Elegir {current}</Btn>
           </Stage>
         );
       })()}
@@ -1790,9 +1780,9 @@ export default function Pistazo() {
               </>
             ) : clue3TimerDone ? (
               <>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({3 - clue3Replays} repeticiones disponibles)</p>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({2 - clue3Replays} repeticiones disponibles)</p>
                 <div style={{ display: "flex", gap: 12, width: "100%" }}>
-                  {clue3Replays < 3 && <Btn variant="secondary" onClick={repeatClue3}>🔁 Repetir</Btn>}
+                  {clue3Replays < 2 && <Btn variant="secondary" onClick={repeatClue3}>🔁 Repetir</Btn>}
                   <Btn variant="gold" onClick={goToCountdown}>Continuar</Btn>
                 </div>
               </>
