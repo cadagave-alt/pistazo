@@ -450,6 +450,7 @@ export default function Pistazo() {
     try {
       const saved = localStorage.getItem(`pistazo-myteam-${code}`);
       if (saved) setMyTeamId(saved);
+      localStorage.setItem("pistazo-active-room", code);
     } catch (e) { /* ignore */ }
   }
 
@@ -537,6 +538,7 @@ export default function Pistazo() {
         }
       } catch (e) { /* si falla, igual salimos localmente */ }
       try { localStorage.removeItem(`pistazo-myteam-${roomCode}`); } catch (e) {}
+      try { localStorage.removeItem("pistazo-active-room"); } catch (e) {}
     }
     if (roomUnsubRef.current) { roomUnsubRef.current(); roomUnsubRef.current = null; }
     setRoomData(null);
@@ -558,6 +560,27 @@ export default function Pistazo() {
     const joinParam = params.get("join");
     if (joinParam) setJoinCodeInput(joinParam.toUpperCase());
   }, []);
+
+  // Si el navegador "mató" la pestaña (por ejemplo, al salir a Spotify y volver) y se recargó desde cero,
+  // reconectamos automáticamente a la sala en la que estaba, en vez de dejar a la persona en el inicio.
+  useEffect(() => {
+    try {
+      const activeRoom = localStorage.getItem("pistazo-active-room");
+      const savedTeamId = activeRoom ? localStorage.getItem(`pistazo-myteam-${activeRoom}`) : null;
+      if (activeRoom && savedTeamId) {
+        subscribeToRoom(activeRoom);
+        setScreen("roomGame");
+      }
+    } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Si al reconectar resulta que la sala todavía no tiene partida en curso, no dejar la pantalla vacía.
+  useEffect(() => {
+    if (screen === "roomGame" && roomData && !roomData.game) {
+      setScreen("onlineLobby");
+    }
+  }, [screen, roomData]);
 
   function addTeam() {
     if (!teamInput.trim() || teams.length >= 5) return;
