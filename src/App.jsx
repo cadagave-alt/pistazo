@@ -7,11 +7,11 @@ import { doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, serv
 const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", white: "#FFFFFF" };
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
-const FORMATOS = ["Solo", "Dúo", "Grupo"];
 const AVATARS = ["/avatars/avatar1.png", "/avatars/avatar2.png", "/avatars/avatar3.png", "/avatars/avatar4.png", "/avatars/avatar5.png", "/avatars/avatar6.png", "/avatars/avatar7.png", "/avatars/avatar8.png"];
 const CLUE_SECONDS = 5;
 const CLUE3_SECONDS = 5;
 const CLUE3_INTRO_SECONDS = 5;
+const DECISION_SECONDS = 2;
 const ANSWER_SECONDS = 15;
 const COUNT_SECONDS = 3;
 const REVEAL_DELAY = 3;
@@ -238,7 +238,6 @@ export default function Pistazo() {
   const [genres, setGenres] = useState(DEFAULT_GENRES);
   const [csvLoadError, setCsvLoadError] = useState(false);
   const [roundGenre, setRoundGenre] = useState("Todos");
-  const [roundFormato, setRoundFormato] = useState("Todos");
   const [pendingGenero, setPendingGenero] = useState(null);
   const [pendingTipo, setPendingTipo] = useState(null);
   const [usedIds, setUsedIds] = useState([]);
@@ -362,24 +361,19 @@ export default function Pistazo() {
           complete: (results) => {
             const fields = results.meta.fields || [];
             const generoKey = findHeaderNorm(fields, "genero");
-            const tipoKey = findHeaderNorm(fields, "tipo", "tema");
             const tituloKey = findHeaderNorm(fields, "titulo", "cancion");
-            const adiv1Key = findHeaderNorm(fields, "adivinanza 1", "adivinanza1", "pista 1", "pista1");
             const adiv2Key = findHeaderNorm(fields, "adivinanza 2", "adivinanza2", "pista 2", "pista2");
-            const formatoKey = findHeaderNorm(fields, "formato");
             const artistaKey = findHeaderNorm(fields, "artista", "interprete");
             const spotifyKey = findHeaderNorm(fields, "spotify");
-            if (!tituloKey || !tipoKey || !adiv1Key || !adiv2Key) { setCsvLoadError(true); return; }
+            if (!tituloKey || !adiv2Key) { setCsvLoadError(true); return; }
             const grouped = {};
             const moodSet = new Set();
             const genreSet = new Set();
             results.data.filter((r) => r[tituloKey]).forEach((r) => {
-              const tipoVal = (r[tipoKey] || "Neutro").trim();
+              const tipoVal = "Canciones";
               const generoVal = generoKey ? (r[generoKey] || "").trim() : "";
-              const formatoRaw = formatoKey ? (r[formatoKey] || "").trim() : "";
-              const formatoVal = FORMATOS.find((f) => f.toLowerCase() === formatoRaw.toLowerCase()) || "Solo";
               const artistVal = artistaKey ? r[artistaKey] || "" : "";
-              const song = { id: stableSongId(r[tituloKey], artistVal), genero: generoVal, formato: formatoVal, title: r[tituloKey], artist: artistVal, clue1: r[adiv1Key] || "", clue2: r[adiv2Key] || "", spotify: spotifyKey ? r[spotifyKey] || "" : "" };
+              const song = { id: stableSongId(r[tituloKey], artistVal), genero: generoVal, title: r[tituloKey], artist: artistVal, clue2: r[adiv2Key] || "", spotify: spotifyKey ? r[spotifyKey] || "" : "" };
               grouped[tipoVal] = grouped[tipoVal] || [];
               grouped[tipoVal].push(song);
               moodSet.add(tipoVal);
@@ -658,7 +652,11 @@ export default function Pistazo() {
     setClue3Started(true);
     setClue3TimerDone(false);
     try { spotifyControllerRef.current && spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
-    runCountdown(CLUE3_SECONDS, setTimeLeft, () => { stopClue3Audio(); setClue3TimerDone(true); });
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => {
+      stopClue3Audio();
+      setClue3TimerDone(true);
+      runCountdown(DECISION_SECONDS, setTimeLeft, () => goToCountdown());
+    });
   }
 
   function repeatClue3() {
@@ -666,7 +664,11 @@ export default function Pistazo() {
     setClue3Replays((n) => n + 1);
     setClue3TimerDone(false);
     try { spotifyControllerRef.current && spotifyControllerRef.current.seek(0); spotifyControllerRef.current.play(); } catch (e) { /* ignore */ }
-    runCountdown(CLUE3_SECONDS, setTimeLeft, () => { stopClue3Audio(); setClue3TimerDone(true); });
+    runCountdown(CLUE3_SECONDS, setTimeLeft, () => {
+      stopClue3Audio();
+      setClue3TimerDone(true);
+      runCountdown(DECISION_SECONDS, setTimeLeft, () => goToCountdown());
+    });
   }
 
   function goToCountdown() {
@@ -893,9 +895,12 @@ export default function Pistazo() {
     }
     if (g.phase === "clue3" && g.clueStartedAt) {
       const remaining = CLUE3_SECONDS * 1000 - (Date.now() - g.clueStartedAt);
-      if (remaining <= 0) { stopClue3Audio(); return; }
-      const t = setTimeout(() => stopClue3Audio(), remaining);
-      return () => clearTimeout(t);
+      let decisionTimeout;
+      const t = setTimeout(() => {
+        stopClue3Audio();
+        decisionTimeout = setTimeout(() => roomContinueFromClue3(), DECISION_SECONDS * 1000);
+      }, Math.max(0, remaining));
+      return () => { clearTimeout(t); if (decisionTimeout) clearTimeout(decisionTimeout); };
     }
   }, [roomData?.game?.phase, roomData?.game?.clueStartedAt, myTeamId, roomCode]);
 
@@ -1272,7 +1277,7 @@ export default function Pistazo() {
                     </>
                   ) : finished ? (
                     <>
-                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({2 - replays} repeticiones disponibles)</p>
+                      <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¡Decide rápido! ({2 - replays} repeticiones disponibles)</p>
                       <div style={{ display: "flex", gap: 12, width: "100%" }}>
                         {replays < 2 && <Btn variant="secondary" onClick={roomRepeatClue3}>🔁 Repetir</Btn>}
                         <Btn variant="gold" onClick={roomContinueFromClue3}>Continuar</Btn>
@@ -1770,7 +1775,7 @@ export default function Pistazo() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, textAlign: "center" }}>
             <p style={{ color: C.teal, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", fontSize: 14, fontFamily: "'Baloo 2', sans-serif" }}>Pista 3 · Escucha</p>
             <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Ring pct={timeLeft / CLUE3_SECONDS} />
+              <Ring pct={timeLeft / (clue3TimerDone ? DECISION_SECONDS : CLUE3_SECONDS)} color={clue3TimerDone ? C.pink : C.gold} />
               <span style={{ position: "absolute", fontSize: 36, fontWeight: 900, color: C.white }}>{timeLeft}</span>
             </div>
             {!clue3Started ? (
@@ -1780,7 +1785,7 @@ export default function Pistazo() {
               </>
             ) : clue3TimerDone ? (
               <>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¿Escuchar de nuevo? ({2 - clue3Replays} repeticiones disponibles)</p>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>¡Decide rápido! ({2 - clue3Replays} repeticiones disponibles)</p>
                 <div style={{ display: "flex", gap: 12, width: "100%" }}>
                   {clue3Replays < 2 && <Btn variant="secondary" onClick={repeatClue3}>🔁 Repetir</Btn>}
                   <Btn variant="gold" onClick={goToCountdown}>Continuar</Btn>
