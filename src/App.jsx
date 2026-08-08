@@ -8,6 +8,8 @@ const C = { bg: "#150C2E", pink: "#FF3D8A", gold: "#FFC93C", teal: "#2EE6D0", wh
 const DEFAULT_MOODS = ["Despecho", "Enamorado", "Venganza", "Neutro"];
 const DEFAULT_GENRES = ["Salsa", "Vallenato", "Bachata", "Reggaetón", "Balada", "Merengue", "Pop"];
 const AVATARS = ["/avatars/avatar1.png", "/avatars/avatar2.png", "/avatars/avatar3.png", "/avatars/avatar4.png", "/avatars/avatar5.png", "/avatars/avatar6.png", "/avatars/avatar7.png", "/avatars/avatar8.png"];
+// Reemplaza esto por el link real de tu formulario de Google una vez lo crees.
+const SUGGEST_SONGS_URL = "https://forms.gle/86yhkRb7X1xGB8JcA";
 const CLUE_SECONDS = 5;
 const CLUE3_SECONDS = 5;
 const CLUE3_INTRO_SECONDS = 5;
@@ -1046,6 +1048,9 @@ export default function Pistazo() {
                 textShadow: "0 4px 0 #7626ff, 0 8px 16px rgba(0,0,0,0.45)",
               }}>PISTAZO</h1>
               <p style={{ color: "rgba(255,255,255,0.6)", marginTop: 10, fontSize: 15, fontWeight: 700, letterSpacing: 1 }}>Adivina • Canta • Gana</p>
+              {totalSongs > 0 && (
+                <p style={{ color: C.gold, marginTop: 6, fontSize: 13, fontWeight: 700 }}>+{totalSongs} canciones para disfrutar</p>
+              )}
             </div>
             <div onClick={handleLogoTap} style={{ userSelect: "none", animation: "pz-float 3s ease-in-out infinite" }}>
               <img src={AVATARS[7]} alt="" style={{ width: 96, height: 96, borderRadius: "50%", objectFit: "cover", border: `3px solid ${C.gold}`, boxShadow: `0 10px 30px -8px ${C.gold}88` }} />
@@ -1054,6 +1059,9 @@ export default function Pistazo() {
               <Btn onClick={() => setScreen(hasSeenInstructions ? "onlineHome" : "instructions")}><Users size={18} /> Jugar</Btn>
               <Btn variant="secondary" onClick={() => setScreen("instructions")}>Cómo jugar</Btn>
             </div>
+            <a href={SUGGEST_SONGS_URL} target="_blank" rel="noreferrer" style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textDecoration: "underline", marginTop: 4 }}>
+              🎵 ¿Falta tu canción favorita? Recomiéndala aquí
+            </a>
           </div>
         </Stage>
       )}
